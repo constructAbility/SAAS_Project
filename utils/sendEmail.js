@@ -1,25 +1,32 @@
 // utils/sendEmail.js
-const axios = require('axios');
+const nodemailer = require('nodemailer');
 
-const sendEmail = async (to, subject, text) => {
-  const response = await axios.post(
-    'https://api.resend.com/emails',
-    {
-      from: process.env.RESEND_EMAIL_FROM,
+const sendEmail = async (to, subject, html, text) => {
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,   // Gmail ID
+        pass: process.env.EMAIL_PASS    // App Password
+      }
+    });
+
+    const mailOptions = {
+      from: `"Your App Name" <${process.env.EMAIL_USER}>`,
       to,
       subject,
-      text,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    }
-  );
+      html: html || `<p>${text || ''}</p>`,
+      text: text || html?.replace(/<[^>]+>/g, '') // Fallback to plain text
+    };
 
-  console.log('✅ Resend response:', response.data);
-  return response.data;
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Email Sent:', info.messageId);
+
+    return info;
+  } catch (error) {
+    console.error('❌ Email Send Failed:', error.message);
+    return { success: false, error: error.message };
+  }
 };
 
 module.exports = sendEmail;
