@@ -2,62 +2,81 @@ const jwt = require('jsonwebtoken');
 const User = require('../model/user');
 const nodemailer = require('nodemailer');
 
-// JWT token generator
+
 const generateToken = (user) => {
   return jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1d' });
 };
 
-// ----------------- REGISTER -----------------
+
 exports.register = async (req, res) => {
   try {
-    const { name, email, phone, location, password, confirmPassword, role='user' } = req.body;
+    const { name, email, phone, location, password, confirmPassword, role = 'user' } = req.body;
 
-    if(!name || !email || !phone || !location || !password || !confirmPassword){
+    if (!name || !email || !phone || !location || !password || !confirmPassword) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
-    if(password !== confirmPassword){
+    if (password !== confirmPassword) {
       return res.status(400).json({ message: 'Passwords do not match' });
     }
 
     let user = await User.findOne({ email: email.trim().toLowerCase() });
 
-    if(user && user.isVerified){
+    if (user && user.isVerified) {
       return res.status(400).json({ message: 'User already registered' });
     }
 
-    if(!user){
-      user = new User({ name, email: email.trim().toLowerCase(), phone, location, password, role, isVerified:false });
+    if (!user) {
+      user = new User({
+        name,
+        email: email.trim().toLowerCase(),
+        phone,
+        location,
+        password,
+        role,
+        isVerified: false
+      });
     }
 
-    // Generate OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     user.otp = otp;
-    user.otpExpiry = Date.now() + 10 * 60 * 1000; // 10 min
+    user.otpExpiry = Date.now() + 10 * 60 * 1000;
     await user.save();
 
-    console.log('Generated OTP:', otp); // ✅ For testing
+    console.log('Generated OTP:', otp);
 
-    // Send OTP email
     const transporter = nodemailer.createTransport({
-      service:'gmail',
-      auth:{ user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS }
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      },
+      secure: true,
+      connectionTimeout: 10000, // 10 sec
     });
 
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: 'Verify your email - OTP',
-      text: `Hello ${name},\nYour OTP is ${otp}. It is valid for 10 minutes.\n\nThank you!`
-    });
+    // 🔍 Verify connection (debugging step)
+    await transporter.verify();
+
+    // 📤 Send OTP only in production, else log
+    if (process.env.NODE_ENV === 'production') {
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: 'Verify your email - OTP',
+        text: `Hello ${name},\nYour OTP is ${otp}. It is valid for 10 minutes.\n\nThank you!`
+      });
+    } else {
+      console.log(`⚠️ [DEV MODE] OTP for ${email}: ${otp}`);
+    }
 
     res.status(200).json({ message: 'OTP sent to email. Please verify.' });
 
-  } catch(err){
-    console.error('Register Error:', err.message);
-    res.status(500).json({ message:'Registration failed', error:err.message });
+  } catch (err) {
+    console.error('Register Error:', err);
+    res.status(500).json({ message: 'Registration failed', error: err.message });
   }
-}
+};
 
 // ----------------- VERIFY OTP -----------------
 exports.verifyOtp = async (req, res) => {
