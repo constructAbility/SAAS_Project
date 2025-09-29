@@ -5,8 +5,8 @@ const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: [true, 'Full Name is required'], trim: true },
     email: { type: String, required: [true, 'Email is required'], unique: true, trim: true, lowercase: true },
-    phone: { type: String, required: [true, 'Phone number is required'] },
-    location: { type: String, required: [true, 'Location is required'] },
+phone: { type: String, required: true },
+location: { type: String, required: true },
     password: { type: String, required: [true, 'Password is required'], minlength: 6 },
     role: { type: String, enum: ['admin','user'], default: 'user' },
     isVerified: { type: Boolean, default: false },
