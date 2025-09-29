@@ -1,12 +1,10 @@
-const jwt = require('jsonwebtoken');
 const User = require('../model/user');
-const nodemailer = require('nodemailer');
-
+const sendEmail = require('../utils/sendEmail'); // Make sure you have this file
+const jwt = require('jsonwebtoken');
 
 const generateToken = (user) => {
   return jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1d' });
 };
-
 
 exports.register = async (req, res) => {
   try {
@@ -45,30 +43,11 @@ exports.register = async (req, res) => {
 
     console.log('Generated OTP:', otp);
 
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      },
-      secure: true,
-      connectionTimeout: 10000, // 10 sec
-    });
+    // Use resend (sendEmail) instead of nodemailer
+    const subject = 'Verify your email - OTP';
+    const text = `Hello ${name},\nYour OTP is ${otp}. It is valid for 10 minutes.\n\nThank you!`;
 
-    // 🔍 Verify connection (debugging step)
-    await transporter.verify();
-
-    // 📤 Send OTP only in production, else log
-    if (process.env.NODE_ENV === 'production') {
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: email,
-        subject: 'Verify your email - OTP',
-        text: `Hello ${name},\nYour OTP is ${otp}. It is valid for 10 minutes.\n\nThank you!`
-      });
-    } else {
-      console.log(`⚠️ [DEV MODE] OTP for ${email}: ${otp}`);
-    }
+    await sendEmail(email, subject, text); // <-- Resend-based function
 
     res.status(200).json({ message: 'OTP sent to email. Please verify.' });
 
@@ -77,7 +56,6 @@ exports.register = async (req, res) => {
     res.status(500).json({ message: 'Registration failed', error: err.message });
   }
 };
-
 // ----------------- VERIFY OTP -----------------
 exports.verifyOtp = async (req, res) => {
   try{
