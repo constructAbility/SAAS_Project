@@ -1,8 +1,7 @@
-const User = require('../model/user'); // Ensure path is correct
+const User = require('../model/user'); 
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 
-// Generate JWT token for login
 const generateToken = (user) => {
   return jwt.sign(
     { id: user._id, role: user.role },
@@ -11,12 +10,12 @@ const generateToken = (user) => {
   );
 };
 
-// REGISTER (No email verification)
+
 exports.register = async (req, res) => {
   try {
-    const { name, email, phone, location, password, confirmPassword, role = 'user' } = req.body;
+    const { name, email, phone, location, password, confirmPassword,branch, role = 'user' } = req.body;
 
-    if (!name || !email || !phone || !location || !password || !confirmPassword) {
+    if (!name || !email || !phone || !location || !password || !confirmPassword || !branch) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
@@ -29,7 +28,7 @@ exports.register = async (req, res) => {
       return res.status(400).json({ message: 'User already exists' });
     }
 
-    // Hash password before saving
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
@@ -37,9 +36,10 @@ exports.register = async (req, res) => {
       email: email.trim().toLowerCase(),
       phone,
       location,
+       branch,
       password: hashedPassword,
       role,
-      isVerified: true // auto-verified
+      isVerified: true 
     });
 
     return res.status(201).json({
@@ -57,7 +57,6 @@ exports.register = async (req, res) => {
   }
 };
 
-// LOGIN
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
