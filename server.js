@@ -13,7 +13,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use('/api',require('./routes/authroutes'))
-
+app.use('/api/request',require('./routes/requests'))
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URL)
   .then(() => console.log('MongoDB connected'))

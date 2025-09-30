@@ -1,15 +1,13 @@
-const express=require('express')
+const mongoose = require('mongoose');
 
-const router=express.Router();
+const stockSchema = new mongoose.Schema({
+  branch: { type: String, required: true },
+  quantity: { type: Number, required: true, default: 0 }
+});
 
-const {register,verifyEmail,login }=require('../controllers/auth');
+const itemSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  stock: [stockSchema]
+}, { timestamps: true });
 
-
-
-router.post('/register',register);
-router.post('/login',login);
-router.post('/verification/:token',verifyEmail);
-
-
-
-module.exports=router
+module.exports = mongoose.model('Item', itemSchema);

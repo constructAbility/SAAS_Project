@@ -8,11 +8,18 @@ const userSchema = new mongoose.Schema({
   branch: { type: String, required: true },
   location: { type: String, required: true },
   password: { type: String, required: true },
-  role: { type: String, default: 'user' },
+
+  
+  role: {
+    type: String,
+    enum: ['admin', 'user'], 
+    default: 'user'
+  },
+
   isVerified: { type: Boolean, default: true }
 });
 
-// Optional: password compare helper
+
 userSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
 };
