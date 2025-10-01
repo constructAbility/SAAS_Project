@@ -71,13 +71,13 @@ exports.approveRequest = async (req, res) => {
     request.timestamps.approved = new Date();
     request.token = `REQ-${new Date().getFullYear()}-${String(request._id).slice(-5).toUpperCase()}`;
     await request.save();
-
+console.log('➡ Approving request...');
     await sendEmail(
       request.user.email,
       `Request Approved: ${request.token}`,
       `Hello ${request.user.name},\n\nYour request for item "${request.itemName}" has been approved.\nToken: ${request.token}`
     );
-
+console.log('✅ Email sent successfully');
     res.json({ message: 'Request approved and email sent', request });
   } catch (err) {
     res.status(500).json({ message: 'Approval failed', error: err.message });
