@@ -96,7 +96,7 @@ exports.rejectRequest = async (req, res) => {
     if (req.user.role !== 'admin')
       return res.status(403).json({ message: 'Only admin can reject requests' });
 
-    const request = await Request.findById(req.params.id).populate('user item');
+    const request = await Request.findById(req.params.id).populate('user');
     if (!request) return res.status(404).json({ message: 'Request not found' });
     if (request.status !== 'requested') return res.status(400).json({ message: 'Already processed' });
 
