@@ -57,6 +57,7 @@ exports.getAllRequests = async (req, res) => {
   }
 };
 
+
 exports.approveRequest = async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
@@ -71,19 +72,24 @@ exports.approveRequest = async (req, res) => {
     request.timestamps.approved = new Date();
     request.token = `REQ-${new Date().getFullYear()}-${String(request._id).slice(-5).toUpperCase()}`;
     await request.save();
-console.log('➡ Approving request...');
+
+    console.log('➡ Approving request and sending email...');
+
     await sendEmail(
       request.user.email,
-      `Request Approved: ${request.token}`,
-      `Hello ${request.user.name},\n\nYour request for item "${request.itemName}" has been approved.\nToken: ${request.token}`
+      `✅ Request Approved: ${request.token}`,
+      `Hello ${request.user.name},\n\nYour request for item "${request.itemName}" has been approved.\n\nToken: ${request.token}\n\nThank you!`
     );
-console.log('✅ Email sent successfully');
+
+    console.log('✅ Email sent via Nodemailer (Gmail)');
+
     res.json({ message: 'Request approved and email sent', request });
+
   } catch (err) {
+    console.error('❌ Approval or Email failed:', err.message);
     res.status(500).json({ message: 'Approval failed', error: err.message });
   }
 };
-
 
 exports.rejectRequest = async (req, res) => {
   try {
