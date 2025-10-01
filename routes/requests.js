@@ -20,6 +20,7 @@ router.get('/R-Me', auth, checkRole('admin'), getAllRequests);
 router.put('/:id/approve', auth, checkRole('admin'), approveRequest);
 router.put('/:id/reject', auth, checkRole('admin'), rejectRequest);
 router.put('/:id/dispatch', auth, checkRole('admin'), dispatchRequest);
+
 // GET /items/user-stock
 router.get('/items/user-stock', auth, async (req, res) => {
   try {
