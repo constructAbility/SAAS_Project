@@ -75,11 +75,11 @@ exports.approveRequest = async (req, res) => {
 
     console.log('➡ Approving request and sending email...');
 
-    await sendEmail(
-      request.user.email,
-      `✅ Request Approved: ${request.token}`,
-      `Hello ${request.user.name},\n\nYour request for item "${request.itemName}" has been approved.\n\nToken: ${request.token}\n\nThank you!`
-    );
+    // await sendEmail(
+    //   request.user.email,
+    //   `✅ Request Approved: ${request.token}`,
+    //   `Hello ${request.user.name},\n\nYour request for item "${request.itemName}" has been approved.\n\nToken: ${request.token}\n\nThank you!`
+    // );
 
     console.log('✅ Email sent via Nodemailer (Gmail)');
 
@@ -106,11 +106,11 @@ exports.rejectRequest = async (req, res) => {
     request.rejectionReason = reason || 'No reason provided';
     await request.save();
 
-    await sendEmail(
-      request.user.email,
-      `Request Rejected`,
-      `Hello ${request.user.name},\n\nYour request for item "${request.item.name}" has been rejected.\nReason: ${request.rejectionReason}\n\nThank you!`
-    );
+    // await sendEmail(
+    //   request.user.email,
+    //   `Request Rejected`,
+    //   `Hello ${request.user.name},\n\nYour request for item "${request.item.name}" has been rejected.\nReason: ${request.rejectionReason}\n\nThank you!`
+    // );
 
     res.json({ message: 'Request rejected and email sent', request });
   } catch (err) {
@@ -153,11 +153,11 @@ exports.dispatchRequest = async (req, res) => {
     request.timestamps.dispatched = new Date();
     await request.save();
 
-    await sendEmail(
-      request.user.email,
-      `Your request ${request.token} has been dispatched`,
-      `Hello ${request.user.name},\n\nYour requested item "${item.name}" has been dispatched.\nQuantity: ${request.quantity}\n\nThank you!`
-    );
+    // await sendEmail(
+    //   request.user.email,
+    //   `Your request ${request.token} has been dispatched`,
+    //   `Hello ${request.user.name},\n\nYour requested item "${item.name}" has been dispatched.\nQuantity: ${request.quantity}\n\nThank you!`
+    // );
 
     res.json({ message: 'Request dispatched, stock updated and email sent', request });
   } catch (err) {
