@@ -46,7 +46,7 @@ exports.getAllRequests = async (req, res) => {
     if (req.user.role === 'admin') {
       requests = await Request.find()
         .populate('user', 'name email branch')
-        .populate('item', 'name');
+        // .populate('item', 'name');
     } else {
       requests = await Request.find({ user: req.user.userId })
         .populate('item', 'name');
