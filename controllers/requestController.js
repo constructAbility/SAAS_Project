@@ -131,37 +131,69 @@ exports.dispatchRequest = async (req, res) => {
     const item = request.item;
     const userBranch = request.user.branch;
     const adminBranch = req.user.branch;
+    const quantity = request.quantity;
 
-    // Update stock: admin branch stock reduce
-    const adminStockEntry = item.stock.find(s => s.branch === adminBranch);
-    if (!adminStockEntry || adminStockEntry.quantity < request.quantity) {
+    // 1. Reduce admin's stock in Stock collection
+    const adminStock = await Stock.findOne({
+      item: item._id,
+      branch: adminBranch,
+      ownerId: req.user._id,
+      ownerType: 'admin'
+    });
+
+    if (!adminStock || adminStock.quantity < quantity) {
       return res.status(400).json({ message: 'Insufficient stock at admin branch' });
     }
-    adminStockEntry.quantity -= request.quantity;
+    adminStock.quantity -= quantity;
+    await adminStock.save();
 
-    // Update stock: user branch stock increase
-    let userStockEntry = item.stock.find(s => s.branch === userBranch);
-    if (!userStockEntry) {
-      userStockEntry = { branch: userBranch, quantity: 0 };
-      item.stock.push(userStockEntry);
+    // 2. Increase user's stock in Stock collection
+    // Note: Assuming user's stock ownerType can be 'user' and ownerId is user._id
+    let userStock = await Stock.findOne({
+      item: item._id,
+      branch: userBranch,
+      ownerId: request.user._id,
+      ownerType: 'user'
+    });
+
+    if (!userStock) {
+      userStock = new Stock({
+        item: item._id,
+        branch: userBranch,
+        quantity: 0,
+        ownerId: request.user._id,
+        ownerType: 'user'
+      });
     }
-    userStockEntry.quantity += request.quantity;
+    userStock.quantity += quantity;
+    await userStock.save();
 
-    await item.save();
-
+    // 3. Update request status
     request.status = 'dispatched';
+    request.timestamps = request.timestamps || {};
     request.timestamps.dispatched = new Date();
     await request.save();
 
+    // Optional: send email to user (commented)
     // await sendEmail(
     //   request.user.email,
     //   `Your request ${request.token} has been dispatched`,
-    //   `Hello ${request.user.name},\n\nYour requested item "${item.name}" has been dispatched.\nQuantity: ${request.quantity}\n\nThank you!`
+    //   `Hello ${request.user.name},\n\nYour requested item "${item.name}" has been dispatched.\nQuantity: ${quantity}\n\nThank you!`
     // );
 
-    res.json({ message: 'Request dispatched, stock updated and email sent', request });
+    // 4. Respond with updated stock info for admin
+    res.status(200).json({
+      message: 'Request dispatched successfully. Stock updated.',
+      itemName: item.name,
+      dispatchedTo: request.user.name,
+      quantityDispatched: quantity,
+      adminStockRemaining: adminStock.quantity,
+      userStockTotal: userStock.quantity,
+      request
+    });
+
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Dispatch failed', error: err.message });
   }
 };
-

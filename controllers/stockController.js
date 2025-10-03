@@ -3,20 +3,17 @@ const Stock = require('../model/Stock');
 const Request = require('../model/Request');
 const User = require('../model/user'); 
 
-
-
-
 exports.createOrUpdateStock = async (req, res) => {
   try {
-    const { itemName, description, category, quantity } = req.body;
+    const { itemName, description, category, quantity, rate } = req.body;
     const branch = req.user.branch;
 
-    if (!itemName || quantity == null) {
-      return res.status(400).json({ message: 'Item name and quantity are required.' });
+    if (!itemName || quantity == null || rate == null) {
+      return res.status(400).json({ message: 'Item name, quantity and rate are required.' });
     }
 
-    // 1. Find or create item
     let item = await Item.findOne({ name: itemName });
+
     if (!item) {
       item = new Item({
         name: itemName,
@@ -25,7 +22,6 @@ exports.createOrUpdateStock = async (req, res) => {
       });
       await item.save();
     } else {
-      // optionally update metadata if changed
       let changed = false;
       if (description && description !== item.description) {
         item.description = description;
@@ -35,35 +31,54 @@ exports.createOrUpdateStock = async (req, res) => {
         item.category = category;
         changed = true;
       }
-      if (changed) {
-        await item.save();
-      }
+      if (changed) await item.save();
     }
 
-    // 2. Find or create stock record for this branch & item
-    let stock = await Stock.findOne({ item: item._id, branch });
+    let stock = await Stock.findOne({
+      item: item._id,
+      branch,
+      ownerId: req.user._id
+    });
+
     if (stock) {
       stock.quantity += quantity;
-      await stock.save();
+
+      // 🔹 Update rate if different (optional logic)
+      stock.rate = rate;
     } else {
       stock = new Stock({
         item: item._id,
         branch,
-        quantity
+        quantity,
+        rate,
+        ownerId: req.user._id,
+        ownerType: 'admin'
       });
-      await stock.save();
     }
 
+    await stock.save(); // 🔹 value will be auto-calculated
+
     return res.status(200).json({
-      message: 'Item & stock added/updated successfully',
-      item,
-      stock
+      message: 'Stock successfully added/updated for admin',
+      item: {
+        name: item.name,
+        category: item.category,
+        description: item.description
+      },
+      updatedStock: {
+        quantity: stock.quantity,
+        rate: stock.rate,
+        value: stock.value,
+        branch: stock.branch
+      }
     });
+
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: 'Error adding/updating stock', error: error.message });
   }
 };
+
 
 
 
@@ -123,36 +138,19 @@ exports.getAdminStockSummary = async (req, res) => {
   try {
     const branch = req.user.branch;
 
-    // get all items
-    const items = await Item.find();
+    // get stocks for this admin only
+    const stocks = await Stock.find({ branch, ownerId: req.user._id }).populate('item');
 
-    // get all stocks in this branch
-    const stocks = await Stock.find({ branch });
+const response = stocks.map(stock => ({
+  itemName: stock.item.name,
+  category: stock.item.category,
+  description: stock.item.description,
+  availableQuantity: stock.quantity,
+  rate: stock.rate,              // ✅ Add this
+  value: stock.value             // ✅ Add this
+}));
 
-    // get all dispatched requests to this branch
-    const requests = await Request.find({ 
-      status: 'dispatched',
-      deliveryAddress: branch
-    }).populate('item');
 
-    const response = items.map(item => {
-      // find stock record
-      const stockRec = stocks.find(s => s.item.toString() === item._id.toString());
-      const available = stockRec ? stockRec.quantity : 0;
-
-      // dispatched sum of that item to this branch
-      const dispatchedSum = requests
-        .filter(r => r.item && r.item._id.toString() === item._id.toString())
-        .reduce((sum, r) => sum + r.quantity, 0);
-
-      return {
-        itemName: item.name,
-        category: item.category,
-        description: item.description,
-        availableQuantity: available,
-        dispatchedQuantity: dispatchedSum
-      };
-    });
 
     res.status(200).json({ branch, stock: response });
   } catch (err) {
@@ -165,10 +163,14 @@ exports.getUserStockSummary = async (req, res) => {
   try {
     const branch = req.user.branch;
 
-    // fetch stock records in this branch (only items for which stock exists)
-    const stocks = await Stock.find({ branch }).populate('item');
+    // ✅ Fetch ONLY stock created for this user
+    const stocks = await Stock.find({
+      branch,
+      ownerId: req.user._id,
+      ownerType: 'user'
+    }).populate('item');
 
-    // fetch dispatched requests for this user
+    // ✅ Fetch requests dispatched to this user
     const userRequests = await Request.find({
       user: req.user._id,
       status: 'dispatched'
@@ -180,21 +182,33 @@ exports.getUserStockSummary = async (req, res) => {
         .filter(r => r.item && r.item._id.toString() === item._id.toString())
         .reduce((sum, r) => sum + r.quantity, 0);
 
-      return {
-        itemName: item.name,
-        category: item.category,
-        description: item.description,
-        availableQuantity: stock.quantity,
-        userReceivedQuantity: received
-      };
+     return {
+  itemName: item.name,
+  category: item.category,
+  description: item.description,
+  availableQuantity: stock.quantity,
+  userReceivedQuantity: received,
+  rate: stock.rate,
+  value: stock.value
+};
+
     });
 
-    res.status(200).json({ branch, stock: response });
+    res.status(200).json({
+      user: req.user.name,
+      branch,
+      stock: response
+    });
+
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Error fetching user stock summary', error: err.message });
+    res.status(500).json({
+      message: 'Error fetching user stock summary',
+      error: err.message
+    });
   }
 };
+
 
  // ensure path is correct
 
@@ -216,5 +230,51 @@ exports.getAllUsers = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Failed to fetch users', error: err.message });
+  }
+};
+
+
+exports.getAllStockForAdmin = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    const stocks = await Stock.find().populate('item').populate('ownerId', 'name role'); // show item and owner
+
+    const grouped = {};
+
+    stocks.forEach(stock => {
+      const itemId = stock.item._id.toString();
+      if (!grouped[itemId]) {
+        grouped[itemId] = {
+          itemName: stock.item.name,
+          category: stock.item.category,
+          description: stock.item.description,
+          totalQuantity: 0,
+          stockDetails: []
+        };
+      }
+
+      grouped[itemId].totalQuantity += stock.quantity;
+     grouped[itemId].stockDetails.push({
+  quantity: stock.quantity,
+  rate: stock.rate,
+  value: stock.value,
+  branch: stock.branch,
+  ownerName: stock.ownerId?.name || 'Unknown',
+  ownerRole: stock.ownerType
+});
+
+    });
+
+    res.status(200).json({
+      totalItems: Object.keys(grouped).length,
+      stocks: Object.values(grouped)
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error fetching all stock', error: err.message });
   }
 };
