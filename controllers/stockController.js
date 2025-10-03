@@ -5,20 +5,19 @@ const User = require('../model/user');
 
 
 
+
 exports.createOrUpdateStock = async (req, res) => {
   try {
     const { itemName, description, category, quantity } = req.body;
-    const branch = req.user.branch;  // Admin's branch
+    const branch = req.user.branch;
 
     if (!itemName || quantity == null) {
       return res.status(400).json({ message: 'Item name and quantity are required.' });
     }
 
-    // Step 1: Find if item exists
+    // 1. Find or create item
     let item = await Item.findOne({ name: itemName });
-
     if (!item) {
-      // Create new item
       item = new Item({
         name: itemName,
         description: description || 'No description provided',
@@ -26,7 +25,7 @@ exports.createOrUpdateStock = async (req, res) => {
       });
       await item.save();
     } else {
-      // Optional: update description/category if provided and changed
+      // optionally update metadata if changed
       let changed = false;
       if (description && description !== item.description) {
         item.description = description;
@@ -36,18 +35,17 @@ exports.createOrUpdateStock = async (req, res) => {
         item.category = category;
         changed = true;
       }
-      if (changed) await item.save();
+      if (changed) {
+        await item.save();
+      }
     }
 
-    // Step 2: Find stock for this item & branch
+    // 2. Find or create stock record for this branch & item
     let stock = await Stock.findOne({ item: item._id, branch });
-
     if (stock) {
-      // Update quantity
       stock.quantity += quantity;
       await stock.save();
     } else {
-      // Create new stock record for this branch and item
       stock = new Stock({
         item: item._id,
         branch,
@@ -57,16 +55,16 @@ exports.createOrUpdateStock = async (req, res) => {
     }
 
     return res.status(200).json({
-      message: 'Item and Stock successfully created/updated',
+      message: 'Item & stock added/updated successfully',
       item,
       stock
     });
-
   } catch (error) {
     console.error(error);
-    return res.status(500).json({ message: 'Failed to create/update item and stock', error: error.message });
+    return res.status(500).json({ message: 'Error adding/updating stock', error: error.message });
   }
 };
+
 
 
 exports.getDashboardSummary = async (req, res) => {
@@ -123,69 +121,78 @@ exports.getDashboardSummary = async (req, res) => {
 };
 exports.getAdminStockSummary = async (req, res) => {
   try {
-    const adminBranch = req.user.branch;
+    const branch = req.user.branch;
 
-    const stocks = await Stock.find({ branch: adminBranch }).populate('item');
-    const requests = await Request.find({
+    // get all items
+    const items = await Item.find();
+
+    // get all stocks in this branch
+    const stocks = await Stock.find({ branch });
+
+    // get all dispatched requests to this branch
+    const requests = await Request.find({ 
       status: 'dispatched',
-      deliveryAddress: adminBranch
+      deliveryAddress: branch
     }).populate('item');
 
-    const response = [];
+    const response = items.map(item => {
+      // find stock record
+      const stockRec = stocks.find(s => s.item.toString() === item._id.toString());
+      const available = stockRec ? stockRec.quantity : 0;
 
-    for (const stock of stocks) {
-      if (!stock.item) continue;
-
-      const totalDispatched = requests
-        .filter(r => r.item && r.item._id.toString() === stock.item._id.toString())
+      // dispatched sum of that item to this branch
+      const dispatchedSum = requests
+        .filter(r => r.item && r.item._id.toString() === item._id.toString())
         .reduce((sum, r) => sum + r.quantity, 0);
 
-      response.push({
-        itemName: stock.item.name,
-        category: stock.item.category || 'N/A',
-        description: stock.item.description || 'N/A',
-        availableQuantity: stock.quantity,
-        dispatchedQuantity: totalDispatched
-      });
-    }
+      return {
+        itemName: item.name,
+        category: item.category,
+        description: item.description,
+        availableQuantity: available,
+        dispatchedQuantity: dispatchedSum
+      };
+    });
 
-    res.json({ branch: adminBranch, stock: response });
-
+    res.status(200).json({ branch, stock: response });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch admin stock', error: err.message });
+    console.error(err);
+    res.status(500).json({ message: 'Error fetching admin stock summary', error: err.message });
   }
 };
 
 exports.getUserStockSummary = async (req, res) => {
   try {
-    const userBranch = req.user.branch;
+    const branch = req.user.branch;
 
-    const stocks = await Stock.find({ branch: userBranch }).populate('item');
-    const requests = await Request.find({
+    // fetch stock records in this branch (only items for which stock exists)
+    const stocks = await Stock.find({ branch }).populate('item');
+
+    // fetch dispatched requests for this user
+    const userRequests = await Request.find({
       user: req.user._id,
       status: 'dispatched'
     }).populate('item');
 
-    const response = [];
-
-    for (const stock of stocks) {
-      const totalUserDispatched = requests
-        .filter(r => r.item._id.toString() === stock.item._id.toString())
+    const response = stocks.map(stock => {
+      const item = stock.item;
+      const received = userRequests
+        .filter(r => r.item && r.item._id.toString() === item._id.toString())
         .reduce((sum, r) => sum + r.quantity, 0);
 
-      response.push({
-        itemName: stock.item.name,
-        category: stock.item.category || 'N/A',
-        description: stock.item.description || 'N/A',
+      return {
+        itemName: item.name,
+        category: item.category,
+        description: item.description,
         availableQuantity: stock.quantity,
-        userReceivedQuantity: totalUserDispatched
-      });
-    }
+        userReceivedQuantity: received
+      };
+    });
 
-    res.json({ branch: userBranch, stock: response });
-
+    res.status(200).json({ branch, stock: response });
   } catch (err) {
-    res.status(500).json({ message: 'Failed to fetch user stock', error: err.message });
+    console.error(err);
+    res.status(500).json({ message: 'Error fetching user stock summary', error: err.message });
   }
 };
 
