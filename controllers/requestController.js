@@ -75,11 +75,11 @@ exports.approveRequest = async (req, res) => {
 
     console.log('➡ Approving request and sending email...');
 
-    // await sendEmail(
-    //   request.user.email,
-    //   `✅ Request Approved: ${request.token}`,
-    //   `Hello ${request.user.name},\n\nYour request for item "${request.itemName}" has been approved.\n\nToken: ${request.token}\n\nThank you!`
-    // );
+    await sendEmail(
+      request.user.email,
+      `✅ Request Approved: ${request.token}`,
+      `Hello ${request.user.name},\n\nYour request for item "${request.itemName}" has been approved.\n\nToken: ${request.token}\n\nThank you!`
+    );
 
     console.log('✅ Email sent via Nodemailer (Gmail)');
 
