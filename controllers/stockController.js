@@ -140,41 +140,54 @@ exports.getDashboardSummary = async (req, res) => {
     res.status(500).json({ message: 'Dashboard failed', error: err.message });
   }
 };
+// controllers/stockController.js
+
+
+// ✅ ADMIN: Get all stock summary
 exports.getAdminStockSummary = async (req, res) => {
   try {
-    const branch = req.user.branch;
+    // Fetch all items with all stock entries
+    const items = await Item.find().lean();
 
-    // get stocks for this admin only
-    const stocks = await Stock.find({ branch, ownerId: req.user._id }).populate('item');
+    const stock = items.map(item => {
+      const totalQty = item.stock?.reduce((sum, s) => sum + (s.quantity || 0), 0);
+      const avgRate = item.stock?.length
+        ? item.stock.reduce((sum, s) => sum + (s.rate || 0), 0) / item.stock.length
+        : 0;
 
-const response = stocks.map(stock => ({
-  itemName: stock.item.name,
-  category: stock.item.category,
-  description: stock.item.description,
-  availableQuantity: stock.quantity,
-  rate: stock.rate,              // ✅ Add this
-  value: stock.value             // ✅ Add this
-}));
+      return {
+        _id: item._id,
+        itemName: item.name,
+        hsnCode: item.hsnCode || "-",
+        category: item.category || "Other",
+        description: item.description || "",
+        availableQuantity: totalQty || 0,
+        rate: avgRate || 0,
+        value: (avgRate || 0) * (totalQty || 0),
+      };
+    });
 
-
-
-    res.status(200).json({ branch, stock: response });
+    res.json({
+      message: "Admin Stock Summary",
+      stock,
+      totalItems: stock.length,
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Error fetching admin stock summary', error: err.message });
+    console.error("❌ Error fetching admin stock summary:", err);
+    res.status(500).json({ message: "Failed to load stock summary" });
   }
 };
-
 exports.getUserStockSummary = async (req, res) => {
   try {
     const branch = req.user.branch;
 
     // ✅ Fetch ONLY stock created for this user
-    const stocks = await Stock.find({
-      branch,
-      ownerId: req.user._id,
-      ownerType: 'user'
-    }).populate('item');
+const stocks = await Stock.find({
+  branch,
+  ownerId: req.user._id,
+  ownerType: 'user'
+}).populate('item');
+
 
     // ✅ Fetch requests dispatched to this user
     const userRequests = await Request.find({

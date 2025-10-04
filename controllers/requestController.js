@@ -175,18 +175,19 @@ const item = await Item.findOne({ name: normalizedItemName });
       ownerId: request.user._id,
       ownerType: 'user'
     });
+if (userStock) {
+  userStock.quantity += quantity;
+} else {
+  userStock = new Stock({
+    item: item._id,
+    quantity,
+    rate: adminStock.rate,
+    branch: adminStock.branch,  // ✅ IMPORTANT
+    ownerId: request.user._id,
+    ownerType: 'user'
+  });
+}
 
-    if (userStock) {
-      userStock.quantity += quantity;
-    } else {
-      userStock = new Stock({
-        item: item._id,
-        quantity,
-        rate: adminStock.rate, // carry over same rate
-        ownerId: request.user._id,
-        ownerType: 'user'
-      });
-    }
 
     await userStock.save();
 
