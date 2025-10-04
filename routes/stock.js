@@ -17,6 +17,9 @@ router.get('/all-stock-summary', auth, checkRole('admin'), getAllStockForAdmin);
 router.post('/stock-add', auth, checkRole('admin'), createOrUpdateStock);
 router.get('/stock-user-summary', auth, checkRole('admin'), getUserStockSummary);
 router.get('/get-user', auth, checkRole('admin'), getAllUsers);
+
+// ✅ New route: User can see their own stock
+router.get('/user/stock-summary', auth,checkRole('user'), getUserStockSummary);
 // router.get('/user/:id/stock', auth, checkRole('admin'), getStockByUserId);
 // ✅ New route: User can see their own stock
 router.get('/user/:id/stock', auth, checkRole('admin'), getStockByUserId);

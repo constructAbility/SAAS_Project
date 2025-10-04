@@ -1,4 +1,3 @@
-const mongoose = require('mongoose'); 
 const Item = require('../model/item');
 const Stock = require('../model/Stock');
 const Request = require('../model/Request');
@@ -305,28 +304,25 @@ exports.getAllStockForAdmin = async (req, res) => {
     res.status(500).json({ message: 'Error fetching all stock', error: err.message });
   }
 };
-// controllers/stockController.js
-
 exports.getAllUserStockSummary = async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    // ✅ Fetch all users except admin
+    // ✅ Fetch all users except admin (because admin ka already separate hai)
     const users = await User.find({ role: 'user' }).select('_id name branch');
 
-    // 🔹 Use Promise.all for parallel stock fetching
-    const userStocks = await Promise.all(users.map(async (user) => {
+    const response = [];
+
+    for (const user of users) {
       const stocks = await Stock.find({
         ownerId: user._id,
         ownerType: 'user'
       }).populate('item');
 
       const items = stocks.map(stock => ({
-        itemName: stock.item?.name || 'Unknown',
-        category: stock.item?.category || 'Other',
-        description: stock.item?.description || '',
+        itemName: stock.item.name,
         quantity: stock.quantity,
         rate: stock.rate,
         value: stock.value
@@ -334,23 +330,79 @@ exports.getAllUserStockSummary = async (req, res) => {
 
       const totalValue = items.reduce((sum, i) => sum + i.value, 0);
 
-      return {
+      response.push({
         userName: user.name,
         branch: user.branch,
         totalItems: items.length,
         totalValue,
         items
-      };
-    }));
+      });
+    }
 
     res.status(200).json({
-      message: "All Users Stock Summary",
-      users: userStocks
+      message: "All User Stock Summary",
+      users: response
     });
 
   } catch (err) {
     console.error("❌ Error fetching all user stock:", err);
     res.status(500).json({ message: "Error fetching all user stock", error: err.message });
+  }
+};
+exports.getMyStockSummary = async (req, res) => {
+  try {
+    const user = req.user; // Logged-in user
+
+    if (user.role === 'admin') {
+      // ✅ ADMIN VIEW
+      const stocks = await Stock.find({ ownerId: user._id, ownerType: 'admin' }).populate('item');
+
+      const items = stocks.map(stock => ({
+        itemName: stock.item.name,
+        category: stock.item.category,
+        description: stock.item.description,
+        quantity: stock.quantity,
+        rate: stock.rate,
+        value: stock.value
+      }));
+
+      const totalValue = items.reduce((sum, i) => sum + i.value, 0);
+
+      return res.status(200).json({
+        userName: user.name,
+        role: "admin",
+        totalItems: items.length,
+        totalValue,
+        items
+      });
+
+    } else {
+      // ✅ USER VIEW
+      const stocks = await Stock.find({ ownerId: user._id, ownerType: 'user' }).populate('item');
+
+      const items = stocks.map(stock => ({
+        itemName: stock.item.name,
+        category: stock.item.category,
+        description: stock.item.description,
+        quantity: stock.quantity,
+        rate: stock.rate,
+        value: stock.value
+      }));
+
+      const totalValue = items.reduce((sum, i) => sum + i.value, 0);
+
+      return res.status(200).json({
+        userName: user.name,
+        role: "user",
+        totalItems: items.length,
+        totalValue,
+        items
+      });
+    }
+
+  } catch (err) {
+    console.error("❌ Error in stock summary:", err);
+    res.status(500).json({ message: "Error fetching stock summary", error: err.message });
   }
 };
 

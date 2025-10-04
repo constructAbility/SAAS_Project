@@ -234,6 +234,7 @@ exports.getDispatchCount = async (req, res) => {
   }
 };
 
+
 exports.getDispatchSummary = async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
