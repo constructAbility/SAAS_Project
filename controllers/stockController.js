@@ -1,3 +1,4 @@
+const mongoose = require('mongoose'); 
 const Item = require('../model/item');
 const Stock = require('../model/Stock');
 const Request = require('../model/Request');
@@ -304,25 +305,28 @@ exports.getAllStockForAdmin = async (req, res) => {
     res.status(500).json({ message: 'Error fetching all stock', error: err.message });
   }
 };
+// controllers/stockController.js
+
 exports.getAllUserStockSummary = async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    // ✅ Fetch all users except admin (because admin ka already separate hai)
+    // ✅ Fetch all users except admin
     const users = await User.find({ role: 'user' }).select('_id name branch');
 
-    const response = [];
-
-    for (const user of users) {
+    // 🔹 Use Promise.all for parallel stock fetching
+    const userStocks = await Promise.all(users.map(async (user) => {
       const stocks = await Stock.find({
         ownerId: user._id,
         ownerType: 'user'
       }).populate('item');
 
       const items = stocks.map(stock => ({
-        itemName: stock.item.name,
+        itemName: stock.item?.name || 'Unknown',
+        category: stock.item?.category || 'Other',
+        description: stock.item?.description || '',
         quantity: stock.quantity,
         rate: stock.rate,
         value: stock.value
@@ -330,18 +334,18 @@ exports.getAllUserStockSummary = async (req, res) => {
 
       const totalValue = items.reduce((sum, i) => sum + i.value, 0);
 
-      response.push({
+      return {
         userName: user.name,
         branch: user.branch,
         totalItems: items.length,
         totalValue,
         items
-      });
-    }
+      };
+    }));
 
     res.status(200).json({
-      message: "All User Stock Summary",
-      users: response
+      message: "All Users Stock Summary",
+      users: userStocks
     });
 
   } catch (err) {
@@ -349,6 +353,7 @@ exports.getAllUserStockSummary = async (req, res) => {
     res.status(500).json({ message: "Error fetching all user stock", error: err.message });
   }
 };
+
 exports.getMyStockSummary = async (req, res) => {
   try {
     const user = req.user; // Logged-in user
@@ -403,5 +408,72 @@ exports.getMyStockSummary = async (req, res) => {
   } catch (err) {
     console.error("❌ Error in stock summary:", err);
     res.status(500).json({ message: "Error fetching stock summary", error: err.message });
+  }
+};
+
+exports.getStockByUserId = async (req, res) => {
+  try {
+    // 1) Admin check
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    const userId = req.params.id;
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({ message: 'Invalid user id' });
+    }
+
+    // 2) Fetch user basic info
+    const user = await User.findById(userId).select('_id name branch role');
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const stocks = await Stock.find({
+  ownerId: new mongoose.Types.ObjectId(userId), // <- FIXED
+  ownerType: 'user'
+})
+.populate('item')
+.populate('ownerId', 'name')
+.lean();
+
+
+    // 4) If none found
+    if (!stocks.length) {
+      return res.status(200).json({
+        message: `No stock found for user ${user.name}`,
+        user: { id: user._id, name: user.name, branch: user.branch },
+        totalItems: 0,
+        totalValue: 0,
+        items: []
+      });
+    }
+
+    // 5) Map response
+    const items = stocks.map(s => ({
+      stockId: s._id,
+      itemId: s.item?._id || null,
+      itemName: s.item?.name || 'Unknown',
+      category: s.item?.category || 'Other',
+      description: s.item?.description || '',
+      branch: s.branch || user.branch || '-',
+      quantity: s.quantity || 0,
+      rate: s.rate || 0,
+      value: s.value || 0,
+      ownerType: s.ownerType,
+      ownerName: s.ownerId?.name || user.name
+    }));
+
+    const totalValue = items.reduce((sum, it) => sum + (it.value || 0), 0);
+
+    // 6) Return
+    return res.status(200).json({
+      message: `Stock for user ${user.name}`,
+      user: { id: user._id, name: user.name, branch: user.branch },
+      totalItems: items.length,
+      totalValue,
+      items
+    });
+  } catch (err) {
+    console.error('❌ Error in getStockByUserId:', err);
+    return res.status(500).json({ message: 'Failed to fetch user stock', error: err.message });
   }
 };

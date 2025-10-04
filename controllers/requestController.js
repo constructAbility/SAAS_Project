@@ -3,7 +3,9 @@ const Item = require('../model/item');
 const User = require('../model/user');
 const Stock = require('../model/Stock');
 const sendEmail = require('../utils/sendEmail');
-
+const PDFDocument = require('pdfkit');
+const fs = require('fs');
+const path = require('path');
 // Generate token like: REQ-2025-00001
 const generateToken = (id) => {
   return `REQ-${new Date().getFullYear()}-${String(id).padStart(5, '0')}`;
@@ -232,3 +234,125 @@ exports.getDispatchCount = async (req, res) => {
   }
 };
 
+exports.getDispatchSummary = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    // 🔹 Count all dispatched requests
+    const dispatchedRequests = await Request.find({ status: 'dispatched' })
+      .populate('user', 'name email branch') // user details
+      .lean(); 
+
+    const totalDispatched = dispatchedRequests.length;
+
+    // 🔹 Map details for response
+    const dispatchDetails = dispatchedRequests.map(req => ({
+      requestId: req._id,
+      token: req.token || null,
+      itemName: req.itemName,
+      quantity: req.quantity,
+      priority: req.priority,
+      requestedBy: req.user?.name || 'Unknown',
+      userEmail: req.user?.email || '-',
+      branch: req.user?.branch || '-',
+      dispatchedAt: req.timestamps?.dispatched || null
+    }));
+
+    res.status(200).json({
+      message: 'Dispatched requests summary',
+      totalDispatched,
+      dispatchDetails
+    });
+
+  } catch (err) {
+    console.error('❌ Error fetching dispatch summary:', err);
+    res.status(500).json({ message: 'Failed to fetch dispatch summary', error: err.message });
+  }
+};
+
+
+
+
+exports.getDispatchSummaryPDF = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    // Fetch all stock with items and owners
+    const stocks = await Stock.find()
+      .populate('item')
+      .populate('ownerId', 'name branch')
+      .lean();
+
+    if (!stocks.length) {
+      return res.status(200).json({ message: 'No stock available' });
+    }
+
+    const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'portrait' });
+    const tempDir = path.join(__dirname, '..', 'temp');
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+    const fileName = `StockSummary_${Date.now()}.pdf`;
+    const filePath = path.join(tempDir, fileName);
+    const writeStream = fs.createWriteStream(filePath);
+    doc.pipe(writeStream);
+
+    // Header
+    doc.fontSize(16).text('STORE STOCK RECORD', { align: 'center' });
+    doc.fontSize(14).text(`Branch: All Branches`, { align: 'center' });
+    doc.fontSize(12).text(`Generated On: ${new Date().toLocaleDateString()}`, { align: 'center' });
+    doc.moveDown(2);
+
+    // Table header
+    doc.fontSize(10);
+    const tableTop = doc.y;
+    const itemX = 50;
+    const quantityX = 300;
+    const rateX = 370;
+    const valueX = 440;
+    const ownerX = 510;
+
+    doc.text('Particulars', itemX, tableTop);
+    doc.text('Quantity', quantityX, tableTop);
+    doc.text('Rate', rateX, tableTop);
+    doc.text('Value', valueX, tableTop);
+    doc.text('Branch / Owner', ownerX, tableTop);
+    doc.moveDown();
+
+    // Draw line
+    doc.moveTo(itemX, doc.y).lineTo(550, doc.y).stroke();
+
+    // Table rows
+    stocks.forEach(stock => {
+      const y = doc.y + 5;
+
+      // Safe fallback for undefined values
+      const quantity = typeof stock.quantity === 'number' ? stock.quantity : 0;
+      const rate = typeof stock.rate === 'number' ? stock.rate : 0;
+      const value = typeof stock.value === 'number' ? stock.value : quantity * rate;
+
+      doc.text(stock.item?.name || 'Unknown', itemX, y, { width: 240 });
+      doc.text(`${quantity}`, quantityX, y);
+      doc.text(`${rate.toFixed(2)}`, rateX, y);
+      doc.text(`${value.toFixed(2)}`, valueX, y);
+      doc.text(`${stock.branch || 'N/A'} / ${stock.ownerId?.name || 'Unknown'}`, ownerX, y);
+      doc.moveDown();
+    });
+
+    doc.end();
+
+    // Wait for PDF to finish
+    writeStream.on('finish', () => {
+      res.download(filePath, fileName, err => {
+        if (err) console.error('❌ PDF download error:', err);
+        fs.unlink(filePath, () => {}); // optional: delete temp file
+      });
+    });
+
+  } catch (err) {
+    console.error('❌ Error generating stock PDF:', err);
+    res.status(500).json({ message: 'Failed to generate stock PDF', error: err.message });
+  }
+};
