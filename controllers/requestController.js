@@ -118,72 +118,83 @@ exports.rejectRequest = async (req, res) => {
   }
 };
 
+
+
+
+
 exports.dispatchRequest = async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Only admin can dispatch' });
     }
 
-    const request = await Request.findById(req.params.id).populate('user item');
+    const request = await Request.findById(req.params.id).populate('user');
     if (!request) return res.status(404).json({ message: 'Request not found' });
-    if (request.status !== 'approved') return res.status(400).json({ message: 'Request is not approved yet' });
+    if (request.status !== 'approved') {
+      return res.status(400).json({ message: 'Request is not approved yet' });
+    }
 
-    const item = request.item;
+    const quantity = request.quantity;
+    const itemName = request.itemName;
     const userBranch = request.user.branch;
     const adminBranch = req.user.branch;
-    const quantity = request.quantity;
 
-    // 1. Reduce admin's stock in Stock collection
-    const adminStock = await Stock.findOne({
-      item: item._id,
-      branch: adminBranch,
-      ownerId: req.user._id,
-      ownerType: 'admin'
-    });
-
-    if (!adminStock || adminStock.quantity < quantity) {
-      return res.status(400).json({ message: 'Insufficient stock at admin branch' });
-    }
-    adminStock.quantity -= quantity;
-    await adminStock.save();
-
-    // 2. Increase user's stock in Stock collection
-    // Note: Assuming user's stock ownerType can be 'user' and ownerId is user._id
-    let userStock = await Stock.findOne({
-      item: item._id,
-      branch: userBranch,
-      ownerId: request.user._id,
-      ownerType: 'user'
-    });
-
-    if (!userStock) {
-      userStock = new Stock({
-        item: item._id,
-        branch: userBranch,
-        quantity: 0,
-        ownerId: request.user._id,
-        ownerType: 'user'
+    // ✅ Auto-create item if not exists
+    let item = await Item.findOne({ name: itemName });
+    if (!item) {
+      item = new Item({
+        name: itemName,
+        stock: []
       });
     }
-    userStock.quantity += quantity;
-    await userStock.save();
 
-    // 3. Update request status
+    // ✅ Find or create admin stock
+    let adminStock = item.stock.find(s => s.branch === adminBranch);
+    if (!adminStock) {
+      adminStock = {
+        branch: adminBranch,
+        category: "Default",
+        description: "Auto-created by dispatch",
+        quantity: 0
+      };
+      item.stock.push(adminStock);
+    }
+
+    // ✅ Check if admin has enough stock
+    if (adminStock.quantity < quantity) {
+      return res.status(400).json({
+        message: `Insufficient stock at admin branch (${adminBranch}). Available: ${adminStock.quantity}`
+      });
+    }
+
+    // ✅ Deduct from admin branch
+    adminStock.quantity -= quantity;
+
+    // ✅ Find or create user stock
+    let userStock = item.stock.find(s => s.branch === userBranch);
+    if (!userStock) {
+      userStock = {
+        branch: userBranch,
+        category: adminStock.category,
+        description: adminStock.description,
+        quantity: 0
+      };
+      item.stock.push(userStock);
+    }
+
+    // ✅ Add to user branch stock
+    userStock.quantity += quantity;
+
+    await item.save();
+
+    // ✅ Update request
     request.status = 'dispatched';
     request.timestamps = request.timestamps || {};
     request.timestamps.dispatched = new Date();
     await request.save();
 
-    // Optional: send email to user (commented)
-    // await sendEmail(
-    //   request.user.email,
-    //   `Your request ${request.token} has been dispatched`,
-    //   `Hello ${request.user.name},\n\nYour requested item "${item.name}" has been dispatched.\nQuantity: ${quantity}\n\nThank you!`
-    // );
-
-    // 4. Respond with updated stock info for admin
     res.status(200).json({
-      message: 'Request dispatched successfully. Stock updated.',
+      message: '✅ Request dispatched successfully.',
       itemName: item.name,
       dispatchedTo: request.user.name,
       quantityDispatched: quantity,
@@ -193,7 +204,7 @@ exports.dispatchRequest = async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
+    console.error('Dispatch failed:', err);
     res.status(500).json({ message: 'Dispatch failed', error: err.message });
   }
 };
