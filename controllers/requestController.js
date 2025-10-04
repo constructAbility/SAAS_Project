@@ -210,3 +210,25 @@ if (userStock) {
   }
 };
 
+// controllers/requestController.js
+
+exports.getDispatchCount = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    // 🔹 Count all requests with status 'dispatched'
+    const dispatchCount = await Request.countDocuments({ status: 'dispatched' });
+
+    res.status(200).json({
+      message: 'Total number of dispatched requests',
+      totalDispatched: dispatchCount
+    });
+
+  } catch (err) {
+    console.error('❌ Error fetching dispatch count:', err);
+    res.status(500).json({ message: 'Failed to fetch dispatch count', error: err.message });
+  }
+};
+
