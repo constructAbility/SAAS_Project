@@ -1,7 +1,7 @@
-// middleware/auth.js
 const jwt = require('jsonwebtoken');
+const User = require('../model/user'); // ✅ Add this
 
-const auth = (req, res, next) => {
+const auth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -13,9 +13,13 @@ const auth = (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    req.user = decoded; // ✅ Make sure decoded contains `.id`
+    // ✅ Fetch user to get branch, role, etc.
+    const user = await User.findById(decoded.id).select('-password');
+    if (!user) return res.status(401).json({ message: 'User not found' });
 
+    req.user = user; // now you have full user
     next();
+
   } catch (err) {
     return res.status(401).json({ message: 'Invalid token' });
   }

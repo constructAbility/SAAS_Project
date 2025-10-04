@@ -1,6 +1,7 @@
 const Request = require('../model/Request');
 const Item = require('../model/item');
 const User = require('../model/user');
+const Stock = require('../model/Stock');
 const sendEmail = require('../utils/sendEmail');
 
 // Generate token like: REQ-2025-00001
@@ -117,94 +118,94 @@ exports.rejectRequest = async (req, res) => {
     res.status(500).json({ message: 'Rejection failed', error: err.message });
   }
 };
-
-
-
-
-
 exports.dispatchRequest = async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Only admin can dispatch' });
     }
 
-    const request = await Request.findById(req.params.id).populate('user');
+    // 🔍 Find request
+    const request = await Request.findById(req.params.id).populate('user', 'name email');
     if (!request) return res.status(404).json({ message: 'Request not found' });
+
     if (request.status !== 'approved') {
       return res.status(400).json({ message: 'Request is not approved yet' });
     }
 
-    const quantity = request.quantity;
-    const itemName = request.itemName;
-    const userBranch = request.user.branch;
-    const adminBranch = req.user.branch;
+    const { quantity, itemName } = request;
 
-    // ✅ Auto-create item if not exists
-    let item = await Item.findOne({ name: itemName });
+    // 🔍 Get admin user (dispatcher)
+    const adminUser = await User.findById(req.user.id);
+    if (!adminUser) {
+      return res.status(404).json({ message: 'Admin user not found' });
+    }
+
+    // 🔍 Find item by normalized name
+   const normalizedItemName = itemName.trim().toLowerCase();
+const item = await Item.findOne({ name: normalizedItemName });
+
     if (!item) {
-      item = new Item({
-        name: itemName,
-        stock: []
-      });
+      return res.status(400).json({ message: `Item "${itemName}" not found` });
     }
 
-    // ✅ Find or create admin stock
-    let adminStock = item.stock.find(s => s.branch === adminBranch);
+    // 🔍 Check if admin has stock
+    const adminStock = await Stock.findOne({
+      item: item._id,
+      ownerId: adminUser._id,
+      ownerType: 'admin'
+    });
+
     if (!adminStock) {
-      adminStock = {
-        branch: adminBranch,
-        category: "Default",
-        description: "Auto-created by dispatch",
-        quantity: 0
-      };
-      item.stock.push(adminStock);
+      return res.status(404).json({ message: `Admin stock not found for item: ${itemName}` });
     }
 
-    // ✅ Check if admin has enough stock
     if (adminStock.quantity < quantity) {
       return res.status(400).json({
-        message: `Insufficient stock at admin branch (${adminBranch}). Available: ${adminStock.quantity}`
+        message: `Insufficient stock. Available: ${adminStock.quantity}, Required: ${quantity}`
       });
     }
 
-    // ✅ Deduct from admin branch
+    // ✅ Deduct quantity from admin
     adminStock.quantity -= quantity;
+    await adminStock.save();
 
-    // ✅ Find or create user stock
-    let userStock = item.stock.find(s => s.branch === userBranch);
-    if (!userStock) {
-      userStock = {
-        branch: userBranch,
-        category: adminStock.category,
-        description: adminStock.description,
-        quantity: 0
-      };
-      item.stock.push(userStock);
+    // ✅ Add to user's stock
+    let userStock = await Stock.findOne({
+      item: item._id,
+      ownerId: request.user._id,
+      ownerType: 'user'
+    });
+
+    if (userStock) {
+      userStock.quantity += quantity;
+    } else {
+      userStock = new Stock({
+        item: item._id,
+        quantity,
+        rate: adminStock.rate, // carry over same rate
+        ownerId: request.user._id,
+        ownerType: 'user'
+      });
     }
 
-    // ✅ Add to user branch stock
-    userStock.quantity += quantity;
+    await userStock.save();
 
-    await item.save();
-
-    // ✅ Update request
+    // ✅ Update request status
     request.status = 'dispatched';
     request.timestamps = request.timestamps || {};
     request.timestamps.dispatched = new Date();
     await request.save();
 
-    res.status(200).json({
-      message: '✅ Request dispatched successfully.',
-      itemName: item.name,
-      dispatchedTo: request.user.name,
-      quantityDispatched: quantity,
-      adminStockRemaining: adminStock.quantity,
-      userStockTotal: userStock.quantity,
+    return res.status(200).json({
+      message: 'Request dispatched successfully',
+      adminRemainingStock: adminStock.quantity,
+      userTotalStock: userStock.quantity,
       request
     });
 
   } catch (err) {
-    console.error('Dispatch failed:', err);
-    res.status(500).json({ message: 'Dispatch failed', error: err.message });
+    console.error('❌ Dispatch error:', err);
+    return res.status(500).json({ message: 'Dispatch failed', error: err.message });
   }
 };
+

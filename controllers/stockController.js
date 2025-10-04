@@ -2,9 +2,12 @@ const Item = require('../model/item');
 const Stock = require('../model/Stock');
 const Request = require('../model/Request');
 const User = require('../model/user'); 
-
 exports.createOrUpdateStock = async (req, res) => {
   try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Only admin can add stock' });
+    }
+
     const { itemName, description, category, quantity, rate } = req.body;
     const branch = req.user.branch;
 
@@ -12,11 +15,15 @@ exports.createOrUpdateStock = async (req, res) => {
       return res.status(400).json({ message: 'Item name, quantity and rate are required.' });
     }
 
-    let item = await Item.findOne({ name: itemName });
+    // Normalize name
+    const normalizedItemName = itemName.trim().toLowerCase();
+
+    // Check if item exists, otherwise create it
+    let item = await Item.findOne({ name: normalizedItemName });
 
     if (!item) {
       item = new Item({
-        name: itemName,
+        name: normalizedItemName,
         description: description || 'No description provided',
         category: category || 'Uncategorized'
       });
@@ -34,29 +41,29 @@ exports.createOrUpdateStock = async (req, res) => {
       if (changed) await item.save();
     }
 
+    // 🔐 Add/update stock ONLY for the admin themself
     let stock = await Stock.findOne({
       item: item._id,
-      branch,
-      ownerId: req.user._id
+      ownerId: req.user._id,
+      ownerType: 'admin',
+      branch
     });
 
     if (stock) {
       stock.quantity += quantity;
-
-      // 🔹 Update rate if different (optional logic)
-      stock.rate = rate;
+      stock.rate = rate; // update rate if needed
     } else {
       stock = new Stock({
         item: item._id,
-        branch,
         quantity,
         rate,
+        branch,
         ownerId: req.user._id,
         ownerType: 'admin'
       });
     }
 
-    await stock.save(); // 🔹 value will be auto-calculated
+    await stock.save(); // value auto-calculated in schema
 
     return res.status(200).json({
       message: 'Stock successfully added/updated for admin',
@@ -78,7 +85,6 @@ exports.createOrUpdateStock = async (req, res) => {
     return res.status(500).json({ message: 'Error adding/updating stock', error: error.message });
   }
 };
-
 
 
 
