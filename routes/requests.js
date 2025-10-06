@@ -23,8 +23,7 @@ router.put('/:id/dispatch', auth, checkRole('admin'), dispatchRequest);
 router.get('/sales',auth, checkRole('admin'),getDispatchCount)
 router.get('/sales-summary',auth, checkRole('admin'),getDispatchSummary)
 router.get('/sales-summary-pdf',auth, checkRole('admin'),getDispatchSummaryPDF)
-
-
+router.post('/add-sales',auth,checkRole('user'),addSale)
 
 router.get('/orders/status-report',auth, checkRole('user'),getOrderStatusReport)
 // GET /items/user-stock
