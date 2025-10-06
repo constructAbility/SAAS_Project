@@ -210,6 +210,7 @@ exports.getUserStockSummary = async (req, res) => {
     }
 
     const stockData = stocks.map(s => ({
+      itemId:s.item._id,
       itemName: s.item.name,
       category: s.item.category,
       description: s.item.description,
