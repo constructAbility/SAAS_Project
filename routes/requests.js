@@ -8,7 +8,7 @@ const {
 //   getMyRequests,
   approveRequest,
   rejectRequest,
-   dispatchRequest,getDispatchCount,getDispatchSummary,getDispatchSummaryPDF,getOrderStatusReport,addSale
+   dispatchRequest,getDispatchCount,getDispatchSummary,getDispatchSummaryPDF,getOrderStatusReport,addSale,getSales,downloadSalesPdf 
 } = require('../controllers/requestController');
 
 // 🟢 USER ROUTES
@@ -26,6 +26,8 @@ router.get('/sales-summary-pdf',auth, checkRole('admin'),getDispatchSummaryPDF)
 router.post('/add-sales',auth,checkRole('user'),addSale)
 
 router.get('/orders/status-report',auth, checkRole('user'),getOrderStatusReport)
+router.get('/get-sales',auth,checkRole('user'),getSales)
+router.get('/get-sales-pdf',auth,checkRole('user'),downloadSalesPdf )
 // GET /items/user-stock
 router.get('/items/user-stock', auth, async (req, res) => {
   try {

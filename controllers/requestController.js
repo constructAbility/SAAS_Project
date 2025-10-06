@@ -466,3 +466,102 @@ exports.addSale = async (req, res) => {
     res.status(500).json({ message: 'Failed to add sale', error: err.message });
   }
 };
+
+exports.getSales = async (req, res) => {
+  try {
+    const sales = await Sale.find({ userId: req.user.id })
+      .populate('item') // Optional: to show item details
+      .sort({ saleDate: -1 }); // Latest first
+
+    res.status(200).json({
+      message: 'Sales fetched successfully',
+      count: sales.length,
+      sales
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch sales', error: err.message });
+  }
+};
+
+
+exports.downloadSalesPdf = async (req, res) => {
+  try {
+    const sales = await Sale.find({ userId: req.user.id }).populate('item');
+
+    const doc = new PDFDocument({ margin: 40, size: 'A4' });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="sales_report.pdf"');
+
+    doc.pipe(res);
+
+    // Title
+    doc.font('Helvetica-Bold').fontSize(18).text('Sales Report', { align: 'center' });
+    doc.moveDown();
+
+    doc.font('Helvetica').fontSize(10).fillColor('#444')
+      .text(`Generated on: ${new Date().toLocaleString()}`, { align: 'right' });
+    doc.moveDown();
+
+    // Define column widths
+    const columnWidths = {
+      customer: 100,
+      item: 100,
+      qty: 40,
+      price: 60,
+      total: 70,   // wider to make room
+      gap: 20,     // spacing between total and date
+      date: 100
+    };
+
+    const startX = 40;
+    const tableTop = doc.y + 10;
+
+    // Calculate column X positions
+    const customerX = startX;
+    const itemX = customerX + columnWidths.customer;
+    const qtyX = itemX + columnWidths.item;
+    const priceX = qtyX + columnWidths.qty;
+    const totalX = priceX + columnWidths.price;
+    const dateX = totalX + columnWidths.total + columnWidths.gap;
+
+    // Table header
+    doc.font('Helvetica-Bold').fontSize(12).fillColor('#000');
+    doc.text('Customer', customerX, tableTop, { width: columnWidths.customer });
+    doc.text('Item', itemX, tableTop, { width: columnWidths.item });
+    doc.text('Qty', qtyX, tableTop, { width: columnWidths.qty, align: 'right' });
+    doc.text('Price', priceX, tableTop, { width: columnWidths.price, align: 'right' });
+    doc.text('Total', totalX, tableTop, { width: columnWidths.total, align: 'right' });
+    doc.text('Date', dateX, tableTop, { width: columnWidths.date });
+    doc.moveTo(startX, tableTop + 15).lineTo(550, tableTop + 15).stroke();
+
+    // Table rows
+    doc.font('Helvetica').fontSize(11).fillColor('#000');
+    let y = tableTop + 25;
+    let grandTotal = 0;
+
+    sales.forEach((sale) => {
+      doc.text(sale.customerName, customerX, y, { width: columnWidths.customer });
+      doc.text(sale.item?.name || 'N/A', itemX, y, { width: columnWidths.item });
+      doc.text(sale.quantity.toString(), qtyX, y, { width: columnWidths.qty, align: 'right' });
+      doc.text(`${sale.price.toFixed(2)}`, priceX, y, { width: columnWidths.price, align: 'right' });
+      doc.text(`${sale.totalAmount.toFixed(2)}`, totalX, y, { width: columnWidths.total, align: 'right' });
+      doc.text(new Date(sale.saleDate).toLocaleDateString(), dateX, y, { width: columnWidths.date });
+
+      y += 20;
+      grandTotal += sale.totalAmount;
+    });
+
+    // Line before total
+    doc.moveTo(startX, y + 5).lineTo(550, y + 5).stroke();
+
+
+    // Grand total
+    doc.font('Helvetica-Bold').fontSize(13);
+    doc.text(`Grand Total(RS): ${grandTotal.toFixed(2)}`, startX, y + 15, { align: 'right' });
+
+    doc.end();
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to generate PDF', error: err.message });
+  }
+};

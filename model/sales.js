@@ -21,3 +21,19 @@ saleSchema.pre('save', function(next) {
 });
 
 module.exports = mongoose.model('Sale', saleSchema);
+
+exports.getSales = async (req, res) => {
+  try {
+    const sales = await Sale.find({ userId: req.user.id })
+      .populate('item') // Optional: to show item details
+      .sort({ saleDate: -1 }); // Latest first
+
+    res.status(200).json({
+      message: 'Sales fetched successfully',
+      count: sales.length,
+      sales
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to fetch sales', error: err.message });
+  }
+};
