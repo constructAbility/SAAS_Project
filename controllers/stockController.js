@@ -240,12 +240,12 @@ exports.getUserStockSummary = async (req, res) => {
 
 exports.getAllUsers = async (req, res) => {
   try {
-    // Sirf admin hi access kar sakta hai
+  
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    const users = await User.find().select('-password'); // password hata ke sab details laao
+    const users = await User.find().select('-password'); 
     const totalUsers = users.length;
 
     res.status(200).json({

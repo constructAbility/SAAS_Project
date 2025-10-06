@@ -6,6 +6,10 @@ const sendEmail = require('../utils/sendEmail');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
+const Sale = require('../model/sales')
+
+
+
 // Generate token like: REQ-2025-00001
 const generateToken = (id) => {
   return `REQ-${new Date().getFullYear()}-${String(id).padStart(5, '0')}`;
@@ -244,22 +248,31 @@ exports.getDispatchSummary = async (req, res) => {
     // 🔹 Count all dispatched requests
     const dispatchedRequests = await Request.find({ status: 'dispatched' })
       .populate('user', 'name email branch') // user details
+      .populate('item', 'name rate')          // item details including rate/price
       .lean(); 
 
     const totalDispatched = dispatchedRequests.length;
 
     // 🔹 Map details for response
-    const dispatchDetails = dispatchedRequests.map(req => ({
-      requestId: req._id,
-      token: req.token || null,
-      itemName: req.itemName,
-      quantity: req.quantity,
-      priority: req.priority,
-      requestedBy: req.user?.name || 'Unknown',
-      userEmail: req.user?.email || '-',
-      branch: req.user?.branch || '-',
-      dispatchedAt: req.timestamps?.dispatched || null
-    }));
+    const dispatchDetails = dispatchedRequests.map(req => {
+      const quantity = typeof req.quantity === 'number' ? req.quantity : 0;
+      const rate = typeof req.item?.rate === 'number' ? req.item.rate : 0;
+      const value = quantity * rate;
+
+      return {
+        requestId: req._id,
+        token: req.token || null,
+        itemName: req.itemName || req.item?.name || 'Unknown',
+        quantity,
+        rate: rate.toFixed(2),
+        value: value.toFixed(2),
+        priority: req.priority,
+        requestedBy: req.user?.name || 'Unknown',
+        userEmail: req.user?.email || '-',
+        branch: req.user?.branch || '-',
+        dispatchedAt: req.timestamps?.dispatched || null
+      };
+    });
 
     res.status(200).json({
       message: 'Dispatched requests summary',
@@ -274,7 +287,7 @@ exports.getDispatchSummary = async (req, res) => {
 };
 
 
-
+// make sure path is correct
 
 exports.getDispatchSummaryPDF = async (req, res) => {
   try {
@@ -282,26 +295,26 @@ exports.getDispatchSummaryPDF = async (req, res) => {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    // Fetch all stock with items and owners
-    const stocks = await Stock.find()
-      .populate('item')
-      .populate('ownerId', 'name branch')
+    // Fetch all dispatched requests with item and user info
+    const dispatchedRequests = await Request.find({ status: 'dispatched' })
+      .populate('item', 'name')      
+      .populate('user', 'name branch') // get user info
       .lean();
 
-    if (!stocks.length) {
-      return res.status(200).json({ message: 'No stock available' });
+    if (!dispatchedRequests.length) {
+      return res.status(200).json({ message: 'No dispatched records available' });
     }
 
     const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'portrait' });
     const tempDir = path.join(__dirname, '..', 'temp');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-    const fileName = `StockSummary_${Date.now()}.pdf`;
+    const fileName = `DispatchSummary_${Date.now()}.pdf`;
     const filePath = path.join(tempDir, fileName);
     const writeStream = fs.createWriteStream(filePath);
     doc.pipe(writeStream);
 
     // Header
-    doc.fontSize(16).text('STORE STOCK RECORD', { align: 'center' });
+    doc.fontSize(16).text('DISPATCH SUMMARY REPORT', { align: 'center' });
     doc.fontSize(14).text(`Branch: All Branches`, { align: 'center' });
     doc.fontSize(12).text(`Generated On: ${new Date().toLocaleDateString()}`, { align: 'center' });
     doc.moveDown(2);
@@ -309,38 +322,54 @@ exports.getDispatchSummaryPDF = async (req, res) => {
     // Table header
     doc.fontSize(10);
     const tableTop = doc.y;
-    const itemX = 50;
-    const quantityX = 300;
-    const rateX = 370;
-    const valueX = 440;
-    const ownerX = 510;
+    const itemX = 30;
+    const qtyX = 150;
+    const rateX = 200;
+    const valueX = 260;
+    const toX = 320;
+    const branchX = 430;
+    const issuedByX = 500;
+    const dateX = 570;
 
-    doc.text('Particulars', itemX, tableTop);
-    doc.text('Quantity', quantityX, tableTop);
+    doc.text('Item', itemX, tableTop);
+    doc.text('Qty', qtyX, tableTop);
     doc.text('Rate', rateX, tableTop);
     doc.text('Value', valueX, tableTop);
-    doc.text('Branch / Owner', ownerX, tableTop);
+    doc.text('Dispatched To', toX, tableTop);
+    doc.text('Branch', branchX, tableTop);
+    doc.text('Requested By', issuedByX, tableTop);
+    doc.text('Date', dateX, tableTop);
     doc.moveDown();
 
     // Draw line
-    doc.moveTo(itemX, doc.y).lineTo(550, doc.y).stroke();
+    doc.moveTo(itemX, doc.y).lineTo(600, doc.y).stroke();
 
-    // Table rows
-    stocks.forEach(stock => {
+    for (const record of dispatchedRequests) {
       const y = doc.y + 5;
+      const quantity = typeof record.quantity === 'number' ? record.quantity : 0;
 
-      // Safe fallback for undefined values
-      const quantity = typeof stock.quantity === 'number' ? stock.quantity : 0;
-      const rate = typeof stock.rate === 'number' ? stock.rate : 0;
-      const value = typeof stock.value === 'number' ? stock.value : quantity * rate;
+      // 🔹 Fetch stock info for this item & branch
+      const stock = await Stock.findOne({ item: record.item?._id, branch: record.user?.branch }).lean();
+      const rate = stock?.rate || 0;
+      const value = stock?.value || quantity * rate;
 
-      doc.text(stock.item?.name || 'Unknown', itemX, y, { width: 240 });
-      doc.text(`${quantity}`, quantityX, y);
-      doc.text(`${rate.toFixed(2)}`, rateX, y);
-      doc.text(`${value.toFixed(2)}`, valueX, y);
-      doc.text(`${stock.branch || 'N/A'} / ${stock.ownerId?.name || 'Unknown'}`, ownerX, y);
+      const itemName = record.item?.name || record.itemName || 'Unknown';
+      const requestedBy = record.user?.name || 'Unknown';
+      const branch = record.user?.branch || '-';
+      const date = record.timestamps?.dispatched
+        ? new Date(record.timestamps.dispatched).toLocaleDateString()
+        : 'N/A';
+
+      doc.text(itemName, itemX, y, { width: 120 });
+      doc.text(quantity, qtyX, y);
+      doc.text(rate.toFixed(2), rateX, y);
+      doc.text(value.toFixed(2), valueX, y);
+      doc.text(record.token || '-', toX, y, { width: 100 });
+      doc.text(branch, branchX, y, { width: 60 });
+      doc.text(requestedBy, issuedByX, y, { width: 60 });
+      doc.text(date, dateX, y);
       doc.moveDown();
-    });
+    }
 
     doc.end();
 
@@ -348,12 +377,92 @@ exports.getDispatchSummaryPDF = async (req, res) => {
     writeStream.on('finish', () => {
       res.download(filePath, fileName, err => {
         if (err) console.error('❌ PDF download error:', err);
-        fs.unlink(filePath, () => {}); // optional: delete temp file
+        fs.unlink(filePath, () => {}); // optional cleanup
       });
     });
 
   } catch (err) {
-    console.error('❌ Error generating stock PDF:', err);
-    res.status(500).json({ message: 'Failed to generate stock PDF', error: err.message });
+    console.error('❌ Error generating dispatch PDF:', err);
+    res.status(500).json({ message: 'Failed to generate dispatch PDF', error: err.message });
+  }
+};
+
+exports.getOrderStatusReport = async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    const requests = await Request.find()
+      .populate('user', 'name branch')
+      .lean();
+
+    const reportData = requests.map(req => ({
+      requestId: req._id,
+      token: req.token || 'Not Assigned',
+      itemName: req.itemName,
+      quantity: req.quantity,
+      requestedBy: req.user?.name || 'Unknown',
+      branch: req.user?.branch || '-',
+      status: req.status, // requested / approved / dispatched / rejected
+      requestedAt: req.createdAt ? new Date(req.createdAt).toLocaleString() : '-',
+      approvedAt: req.timestamps?.approved ? new Date(req.timestamps.approved).toLocaleString() : '-',
+      dispatchedAt: req.timestamps?.dispatched ? new Date(req.timestamps.dispatched).toLocaleString() : '-',
+      rejectedAt: req.rejectionReason ? (req.timestamps?.rejected || 'N/A') : '-',
+      rejectionReason: req.rejectionReason || '-'
+    }));
+
+    res.status(200).json({
+      message: "Order Status Report",
+      total: reportData.length,
+      report: reportData
+    });
+
+  } catch (err) {
+    console.error('❌ Error in Order Status Report:', err);
+    res.status(500).json({ message: 'Failed to fetch order status report', error: err.message });
+  }
+};
+
+
+exports.addSale = async (req, res) => {
+  try {
+    const { customerName, customerEmail, customerAddress, item, quantity, price } = req.body;
+
+   
+    const userStock = await Stock.findOne({
+      item,
+      ownerId: req.user.id,
+      ownerType: 'user'
+    });
+
+    if (!userStock || userStock.quantity < quantity) {
+      return res.status(400).json({ message: `Insufficient stock. Available: ${userStock?.quantity || 0}` });
+    }
+
+    
+    const sale = new Sale({
+      userId: req.user.id,
+      customerName,
+      customerEmail,
+      customerAddress,
+      item,
+      quantity,
+      price
+    });
+    await sale.save();
+
+
+    userStock.quantity -= quantity;
+    await userStock.save();
+
+    res.status(201).json({
+      message: 'Sale added successfully & stock updated',
+      sale,
+      remainingStock: userStock.quantity
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to add sale', error: err.message });
   }
 };
