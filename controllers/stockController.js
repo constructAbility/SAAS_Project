@@ -9,9 +9,10 @@ exports.createOrUpdateStock = async (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Only admin can add stock' });
     }
-
-    const { itemName, description, category, quantity, rate,HNBC } = req.body;
+     
+    const { itemName, description, category, quantity, rate,HNBC,unit } = req.body;
     const branch = req.user.branch;
+    
 
     if (!itemName || quantity == null || rate == null) {
       return res.status(400).json({ message: 'Item name, quantity and rate are required.' });
@@ -22,13 +23,18 @@ exports.createOrUpdateStock = async (req, res) => {
 
     // Check if item exists, otherwise create it
     let item = await Item.findOne({ name: normalizedItemName });
-
+      if (item) {
+      return res.status(400).json({
+        message: 'Item already exists. Stock cannot be added again.'
+      });
+    }
     if (!item) {
       item = new Item({
         name: normalizedItemName,
         description: description || 'No description provided',
         category: category || 'Uncategorized',
-        HNBS:HNBC
+        HNBS:HNBC,
+        unit:unit
       });
       await item.save();
     } else {
@@ -45,7 +51,8 @@ exports.createOrUpdateStock = async (req, res) => {
         item.HNBC = HNBC;
         changed= true;
       }
-      if (changed) await item.save();
+      if(unit && unit !==item.unit)
+    if (changed) await item.save();
     }
 
     // 🔐 Add/update stock ONLY for the admin themself
@@ -66,6 +73,7 @@ exports.createOrUpdateStock = async (req, res) => {
         rate,
         branch,
         HNBC,
+        unit,
         ownerId: req.user._id,
         ownerType: 'admin'
       });
@@ -79,12 +87,16 @@ exports.createOrUpdateStock = async (req, res) => {
         name: item.name,
         category: item.category,
         description: item.description,
-        HNBC:item.HNBC
+        HNBC:item.HNBC,
+        unit:item.unit
+        
       },
       updatedStock: {
         quantity: stock.quantity,
+        unit:stock.unit,
         rate: stock.rate,
         value: stock.value,
+
         branch: stock.branch
       }
     });
@@ -100,7 +112,7 @@ exports.createOrUpdateStockUSer= async (req, res) => {
       return res.status(403).json({ message: 'Only user can add stock' });
     }
 
-    const { itemName, description, category, quantity, rate,HNBC } = req.body;
+    const { itemName, description, category, quantity, rate,HNBC,unit } = req.body;
     const branch = req.user.branch;
 
     if (!itemName || quantity == null || rate == null) {
@@ -112,13 +124,17 @@ exports.createOrUpdateStockUSer= async (req, res) => {
 
     // Check if item exists, otherwise create it
     let item = await Item.findOne({ name: normalizedItemName });
-
+  if (item) {
+      return res.status(400).json({
+        message: 'Item already exists. Stock cannot be added again.'
+      });
+    }
     if (!item) {
       item = new Item({
         name: normalizedItemName,
         description: description || 'No description provided',
         category: category || 'Uncategorized',
-        HNBS:HNBC
+        HNBC:HNBC
       });
       await item.save();
     } else {
@@ -133,6 +149,10 @@ exports.createOrUpdateStockUSer= async (req, res) => {
       }
       if(HNBC && HNBC !==item.HNBC){
         item.HNBC = HNBC;
+        changed= true;
+      }
+        if(unit && unit !==item.unit){
+        item.unit = unit;
         changed= true;
       }
       if (changed) await item.save();
@@ -156,6 +176,7 @@ exports.createOrUpdateStockUSer= async (req, res) => {
         rate,
         branch,
         HNBC,
+        unit,
         ownerId: req.user._id,
         ownerType: 'user'
       });
@@ -169,12 +190,14 @@ exports.createOrUpdateStockUSer= async (req, res) => {
         name: item.name,
         category: item.category,
         description: item.description,
-        HNBC:item.HNBC
+        HNBC:item.HNBC,
+        unit:item.unit
       },
       updatedStock: {
         quantity: stock.quantity,
         rate: stock.rate,
         value: stock.value,
+        unit:stock.unit,
         branch: stock.branch
       }
     });
@@ -266,6 +289,7 @@ exports.getAdminStockSummary = async (req, res) => {
       itemName: stock.item?.name || 'Unknown',
       category: stock.item?.category || 'Other',
       HNBC:stock.item?.HNBC,
+      unit:stock.item?.unit,
       description: stock.item?.description || '',
       branch: stock.branch || '-',
       quantity: stock.quantity || 0,
@@ -314,6 +338,7 @@ exports.getUserStockSummary = async (req, res) => {
       itemName: s.item.name,
       category: s.item.category,
       HNBC:s.item.HNBC,
+      unit:s.item.unit,
       description: s.item.description,
       quantity: s.quantity,
       rate: s.rate,
@@ -379,6 +404,7 @@ exports.getAllStockForAdmin = async (req, res) => {
           itemName: stock.item.name,
           category: stock.item.category,
           HNBC:stock.item.HNBC,
+          unit:stock.item.unit,
           description: stock.item.description,
           totalQuantity: 0,
           stockDetails: []
@@ -430,6 +456,7 @@ exports.getAllUserStockSummary = async (req, res) => {
         rate: stock.rate,
         value: stock.value,
         HNBC:stock.item.HNBC,
+        unit:stock.item.unit
       }));
 
       const totalValue = items.reduce((sum, i) => sum + i.value, 0);
@@ -465,8 +492,10 @@ exports.getMyStockSummary = async (req, res) => {
         itemName: stock.item.name,
         category: stock.item.category,
             HNBC:stock.item.HNBC,
+            
         description: stock.item.description,
         quantity: stock.quantity,
+        unit:stock.item.unit,
         rate: stock.rate,
         value: stock.value
       }));
@@ -489,6 +518,7 @@ exports.getMyStockSummary = async (req, res) => {
         itemName: stock.item.name,
         category: stock.item.category,
         HNBC:stock.item.HNBC,
+        unit:stock.item.unit,
         description: stock.item.description,
         quantity: stock.quantity,
         rate: stock.rate,
@@ -524,6 +554,7 @@ exports.getMyStockSummary = async (req, res) => {
         itemName: stock.item.name,
         category: stock.item.category,
         HNBC:stock.item.HNBC,
+        unit:stock.item.unit,
         description: stock.item.description,
         quantity: stock.quantity,
         rate: stock.rate,
@@ -608,6 +639,7 @@ exports.getStockByUserId = async (req, res) => {
       itemName: s.item.name,
       category: s.item.category,
           HNBC:s.item.HNBC|| 'not available',
+          unit:s.item.unit,
       description: s.item.description,
       quantity: s.quantity,
       rate: s.rate,
