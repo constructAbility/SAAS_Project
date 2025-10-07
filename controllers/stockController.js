@@ -10,7 +10,7 @@ exports.createOrUpdateStock = async (req, res) => {
       return res.status(403).json({ message: 'Only admin can add stock' });
     }
 
-    const { itemName, description, category, quantity, rate } = req.body;
+    const { itemName, description, category, quantity, rate,HNBC } = req.body;
     const branch = req.user.branch;
 
     if (!itemName || quantity == null || rate == null) {
@@ -27,7 +27,8 @@ exports.createOrUpdateStock = async (req, res) => {
       item = new Item({
         name: normalizedItemName,
         description: description || 'No description provided',
-        category: category || 'Uncategorized'
+        category: category || 'Uncategorized',
+        HNBS:HNBC
       });
       await item.save();
     } else {
@@ -39,6 +40,10 @@ exports.createOrUpdateStock = async (req, res) => {
       if (category && category !== item.category) {
         item.category = category;
         changed = true;
+      }
+      if(HNBC && HNBC !==item.HNBC){
+        item.HNBC = HNBC;
+        changed= true;
       }
       if (changed) await item.save();
     }
@@ -60,6 +65,7 @@ exports.createOrUpdateStock = async (req, res) => {
         quantity,
         rate,
         branch,
+        HNBC,
         ownerId: req.user._id,
         ownerType: 'admin'
       });
@@ -72,7 +78,8 @@ exports.createOrUpdateStock = async (req, res) => {
       item: {
         name: item.name,
         category: item.category,
-        description: item.description
+        description: item.description,
+        HNBC:item.HNBC
       },
       updatedStock: {
         quantity: stock.quantity,
@@ -168,6 +175,7 @@ exports.getAdminStockSummary = async (req, res) => {
     const response = stocks.map(stock => ({
       itemName: stock.item?.name || 'Unknown',
       category: stock.item?.category || 'Other',
+      HNBC:stock.item?.HNBC,
       description: stock.item?.description || '',
       branch: stock.branch || '-',
       quantity: stock.quantity || 0,
@@ -215,6 +223,7 @@ exports.getUserStockSummary = async (req, res) => {
       itemId:s.item._id,
       itemName: s.item.name,
       category: s.item.category,
+      HNBC:s.item.HNBC,
       description: s.item.description,
       quantity: s.quantity,
       rate: s.rate,
@@ -279,6 +288,7 @@ exports.getAllStockForAdmin = async (req, res) => {
         grouped[itemId] = {
           itemName: stock.item.name,
           category: stock.item.category,
+          HNBC:stock.item.HNBC,
           description: stock.item.description,
           totalQuantity: 0,
           stockDetails: []
@@ -328,7 +338,8 @@ exports.getAllUserStockSummary = async (req, res) => {
         itemName: stock.item.name,
         quantity: stock.quantity,
         rate: stock.rate,
-        value: stock.value
+        value: stock.value,
+        HNBC:stock.item.HNBC,
       }));
 
       const totalValue = items.reduce((sum, i) => sum + i.value, 0);
@@ -363,6 +374,7 @@ exports.getMyStockSummary = async (req, res) => {
       const items = stocks.map(stock => ({
         itemName: stock.item.name,
         category: stock.item.category,
+            HNBC:stock.item.HNBC,
         description: stock.item.description,
         quantity: stock.quantity,
         rate: stock.rate,
@@ -386,6 +398,7 @@ exports.getMyStockSummary = async (req, res) => {
       const items = stocks.map(stock => ({
         itemName: stock.item.name,
         category: stock.item.category,
+        HNBC:stock.item.HNBC,
         description: stock.item.description,
         quantity: stock.quantity,
         rate: stock.rate,
@@ -420,6 +433,7 @@ exports.getMyStockSummary = async (req, res) => {
       const items = stocks.map(stock => ({
         itemName: stock.item.name,
         category: stock.item.category,
+        HNBC:stock.item.HNBC,
         description: stock.item.description,
         quantity: stock.quantity,
         rate: stock.rate,
@@ -443,6 +457,7 @@ exports.getMyStockSummary = async (req, res) => {
       const items = stocks.map(stock => ({
         itemName: stock.item.name,
         category: stock.item.category,
+            HNBC:stock.item.HNBC,
         description: stock.item.description,
         quantity: stock.quantity,
         rate: stock.rate,
@@ -502,6 +517,7 @@ exports.getStockByUserId = async (req, res) => {
       itemId: s.item._id,
       itemName: s.item.name,
       category: s.item.category,
+          HNBC:s.item.HNBC|| 'not available',
       description: s.item.description,
       quantity: s.quantity,
       rate: s.rate,
