@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const requestSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 
-  // 🔥 Add this field to support .populate('item')
+  
   item: { type: mongoose.Schema.Types.ObjectId, ref: 'Item' },
 
   itemName: { type: String, required: true },

@@ -94,6 +94,96 @@ exports.createOrUpdateStock = async (req, res) => {
     return res.status(500).json({ message: 'Error adding/updating stock', error: error.message });
   }
 };
+exports.createOrUpdateStockUSer= async (req, res) => {
+  try {
+    if (req.user.role !== 'user') {
+      return res.status(403).json({ message: 'Only user can add stock' });
+    }
+
+    const { itemName, description, category, quantity, rate,HNBC } = req.body;
+    const branch = req.user.branch;
+
+    if (!itemName || quantity == null || rate == null) {
+      return res.status(400).json({ message: 'Item name, quantity and rate are required.' });
+    }
+
+    // Normalize name
+    const normalizedItemName = itemName.trim().toLowerCase();
+
+    // Check if item exists, otherwise create it
+    let item = await Item.findOne({ name: normalizedItemName });
+
+    if (!item) {
+      item = new Item({
+        name: normalizedItemName,
+        description: description || 'No description provided',
+        category: category || 'Uncategorized',
+        HNBS:HNBC
+      });
+      await item.save();
+    } else {
+      let changed = false;
+      if (description && description !== item.description) {
+        item.description = description;
+        changed = true;
+      }
+      if (category && category !== item.category) {
+        item.category = category;
+        changed = true;
+      }
+      if(HNBC && HNBC !==item.HNBC){
+        item.HNBC = HNBC;
+        changed= true;
+      }
+      if (changed) await item.save();
+    }
+
+    // 🔐 Add/update stock ONLY for the admin themself
+    let stock = await Stock.findOne({
+      item: item._id,
+      ownerId: req.user._id,
+      ownerType: 'user',
+      branch
+    });
+
+    if (stock) {
+      stock.quantity += quantity;
+      stock.rate = rate; // update rate if needed
+    } else {
+      stock = new Stock({
+        item: item._id,
+        quantity,
+        rate,
+        branch,
+        HNBC,
+        ownerId: req.user._id,
+        ownerType: 'user'
+      });
+    }
+
+    await stock.save(); // value auto-calculated in schema
+
+    return res.status(200).json({
+      message: 'Stock successfully added/updated for admin',
+      item: {
+        name: item.name,
+        category: item.category,
+        description: item.description,
+        HNBC:item.HNBC
+      },
+      updatedStock: {
+        quantity: stock.quantity,
+        rate: stock.rate,
+        value: stock.value,
+        branch: stock.branch
+      }
+    });
+
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error adding/updating stock', error: error.message });
+  }
+};
 
 
 
@@ -323,7 +413,7 @@ exports.getAllUserStockSummary = async (req, res) => {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    // ✅ Fetch all users except admin (because admin ka already separate hai)
+    //  Fetch all users except admin (because admin ka already separate hai)
     const users = await User.find({ role: 'user' }).select('_id name branch');
 
     const response = [];
@@ -368,7 +458,7 @@ exports.getMyStockSummary = async (req, res) => {
     const user = req.user; // Logged-in user
 
     if (user.role === 'admin') {
-      // ✅ ADMIN VIEW
+      //  ADMIN VIEW
       const stocks = await Stock.find({ ownerId: user._id, ownerType: 'admin' }).populate('item');
 
       const items = stocks.map(stock => ({
@@ -392,7 +482,7 @@ exports.getMyStockSummary = async (req, res) => {
       });
 
     } else {
-      // ✅ USER VIEW
+      //  USER VIEW
       const stocks = await Stock.find({ ownerId: user._id, ownerType: 'user' }).populate('item');
 
       const items = stocks.map(stock => ({
@@ -427,7 +517,7 @@ exports.getMyStockSummary = async (req, res) => {
     const user = req.user; // Logged-in user
 
     if (user.role === 'admin') {
-      // ✅ ADMIN VIEW
+      //  ADMIN VIEW
       const stocks = await Stock.find({ ownerId: user._id, ownerType: 'admin' }).populate('item');
 
       const items = stocks.map(stock => ({
@@ -451,7 +541,7 @@ exports.getMyStockSummary = async (req, res) => {
       });
 
     } else {
-      // ✅ USER VIEW
+      //  USER VIEW
       const stocks = await Stock.find({ ownerId: user._id, ownerType: 'user' }).populate('item');
 
       const items = stocks.map(stock => ({

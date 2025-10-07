@@ -474,6 +474,7 @@ exports.getSales = async (req, res) => {
       .sort({ saleDate: -1 }); // Latest first
 
     res.status(200).json({
+      
       message: 'Sales fetched successfully',
       count: sales.length,
       sales

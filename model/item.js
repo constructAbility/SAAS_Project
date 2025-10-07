@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const stockSchema = new mongoose.Schema({
   branch: { type: String, required: true },
-   category: { type: String, required: true }, // <-- NEW
+   category: { type: String, required: true }, 
   quantity: { type: Number, required: true, default: 0 },
     description: String,
     HNBC:{type:String,}
@@ -11,6 +11,7 @@ const stockSchema = new mongoose.Schema({
 const itemSchema = new mongoose.Schema({
   name: { type: String, required: true },
    description: String,
+    category: { type: String, required: true },
     HNBC:{type:String,},
   stock: [stockSchema]
 }, { timestamps: true });
