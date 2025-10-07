@@ -11,7 +11,7 @@ const stockSchema = new mongoose.Schema({
 
 const itemSchema = new mongoose.Schema({
   name: { type: String, required: true },
-    unit: { type: String,  required:true },
+    unit: { type: String },
    description: String,
     category: { type: String, required: true },
     HNBC:{type:String,},

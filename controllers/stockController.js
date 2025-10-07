@@ -71,6 +71,7 @@ exports.createOrUpdateStock = async (req, res) => {
         item: item._id,
         quantity,
         rate,
+        category,
         branch,
         HNBC,
         unit,
@@ -96,7 +97,7 @@ exports.createOrUpdateStock = async (req, res) => {
         unit:stock.unit,
         rate: stock.rate,
         value: stock.value,
-
+        category:stock.category,
         branch: stock.branch
       }
     });
@@ -176,6 +177,7 @@ exports.createOrUpdateStockUSer= async (req, res) => {
         rate,
         branch,
         HNBC,
+        category,
         unit,
         ownerId: req.user._id,
         ownerType: 'user'
@@ -198,6 +200,7 @@ exports.createOrUpdateStockUSer= async (req, res) => {
         rate: stock.rate,
         value: stock.value,
         unit:stock.unit,
+        category:stock.category,
         branch: stock.branch
       }
     });
@@ -416,6 +419,7 @@ exports.getAllStockForAdmin = async (req, res) => {
   quantity: stock.quantity,
   rate: stock.rate,
   value: stock.value,
+  category:stock.category,
   branch: stock.branch,
   ownerName: stock.ownerId?.name || 'Unknown',
   ownerRole: stock.ownerType
@@ -455,6 +459,7 @@ exports.getAllUserStockSummary = async (req, res) => {
         quantity: stock.quantity,
         rate: stock.rate,
         value: stock.value,
+        category:stock.category,
         HNBC:stock.item.HNBC,
         unit:stock.item.unit
       }));
@@ -637,7 +642,7 @@ exports.getStockByUserId = async (req, res) => {
     const stockData = stocks.map(s => ({
       itemId: s.item._id,
       itemName: s.item.name,
-      category: s.item.category,
+      category: s.item.category || 'not available',
           HNBC:s.item.HNBC|| 'not available',
           unit:s.item.unit,
       description: s.item.description,
