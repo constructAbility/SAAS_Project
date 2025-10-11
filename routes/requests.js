@@ -8,7 +8,7 @@ const {
 //   getMyRequests,
   approveRequest,
   rejectRequest,
-   dispatchRequest,getDispatchCount,getDispatchSummary,getDispatchSummaryPDF,getOrderStatusReport,addSale,getSales,downloadSalesPdf 
+   dispatchRequest,getDispatchCount,getDispatchSummary,getDispatchSummaryPDF,getOrderStatusReport,addSale,getSales,downloadSalesPdf,getInvoice,uploadInvoice
 } = require('../controllers/requestController');
 
 //USER ROUTES request stock k liye 
@@ -29,7 +29,10 @@ router.post('/add-sales',auth,checkRole('user'),addSale)
 router.get('/orders/status-report',auth, checkRole('user'),getOrderStatusReport)
 router.get('/get-sales',auth,checkRole('user'),getSales)
 router.get('/get-sales-pdf',auth,checkRole('user'),downloadSalesPdf )
-
+router.post('/requests/:id/upload-invoice', auth, checkRole('admin'), uploadInvoice);
+router.get('/requests/:id/invoice-user', auth, checkRole('user'), getInvoice);
+// 🟠 Get invoice file for a request
+router.get('/requests/:id/invoice', auth, checkRole('admin'), getInvoice);
 
 // GET /items/user-stock
 router.get('/items/user-stock', auth, async (req, res) => {

@@ -1,11 +1,7 @@
-const mongoose = require('mongoose');
-
+const mongoose=require('mongoose')
 const requestSchema = new mongoose.Schema({
   user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-
-  
   item: { type: mongoose.Schema.Types.ObjectId, ref: 'Item' },
-
   itemName: { type: String, required: true },
   Decofitem: { type: String, required: true },
   quantity: { type: Number, required: true, min: 1 },
@@ -15,7 +11,7 @@ const requestSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ['requested', 'approved', 'rejected', 'dispatched'],
+    enum: ['requested', 'approved', 'invoice_uploaded', 'dispatched', 'rejected'],
     default: 'requested'
   },
 
@@ -24,7 +20,14 @@ const requestSchema = new mongoose.Schema({
   timestamps: {
     requested: { type: Date, default: Date.now },
     approved: { type: Date },
+    invoiceUploaded: { type: Date },
     dispatched: { type: Date }
+  },
+
+  invoice: {
+    filePath: { type: String },
+    fileType: { type: String, enum: ['pdf', 'image'], default: 'pdf' },
+    uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
   },
 
   rejectionReason: { type: String }

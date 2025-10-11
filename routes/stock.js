@@ -8,7 +8,7 @@ const {
   getAdminStockSummary,
   getUserStockSummary,
   createOrUpdateStock,
-  getAllUsers,getStockByUserId,createOrUpdateStockUSer
+  getAllUsers,getStockByUserId,createOrUpdateStockUser,
 } = require('../controllers/stockController');
 
 // Admin-only routes
@@ -17,7 +17,7 @@ router.get('/all-stock-summary', auth, checkRole('admin'), getAllStockForAdmin);
 router.post('/stock-add', auth, checkRole('admin'), createOrUpdateStock);
 router.get('/stock-user-summary', auth, checkRole('admin'), getUserStockSummary);
 router.get('/get-user', auth, checkRole('admin'), getAllUsers);
-router.post('/stock-add-user', auth, checkRole('user'),createOrUpdateStockUSer);
+router.post('/stock-add-user', auth, checkRole('user'),createOrUpdateStockUser);
 
 // ✅ New route: User can see their own stock
 router.get('/user/stock-summary', auth,checkRole('user'), getUserStockSummary);
