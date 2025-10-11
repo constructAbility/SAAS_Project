@@ -7,7 +7,7 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 const Sale = require('../model/sales')
-
+const mongoose = require('mongoose');
 const multer = require('multer');
 
 
@@ -640,41 +640,57 @@ exports.downloadSalesPdf = async (req, res) => {
     res.status(500).json({ message: 'Failed to generate PDF', error: err.message });
   }
 };
+// exports.getInvoice = async (req, res) => {
+//   try {
+//     const request = await Request.findById(req.params.id);
+
+//     if (!request) return res.status(404).json({ message: 'Request not found' });
+//     if (!request.invoice || !request.invoice.filePath)
+//       return res.status(404).json({ message: 'Invoice not uploaded yet' });
+
+//     // Only admin or the user who made the request can access it
+//     if (req.user.role !== 'admin' && request.user.toString() !== req.user.id) {
+//       return res.status(403).json({ message: 'Unauthorized' });
+//     }
+
+//     const filePath = path.join(__dirname, '..', request.invoice.filePath);
+//     res.download(filePath);
+//   } catch (err) {
+//     console.error('❌ Get Invoice Error:', err);
+//     res.status(500).json({ message: 'Failed to fetch invoice', error: err.message });
+//   }
+// };
 exports.getInvoice = async (req, res) => {
   try {
-    const request = await Request.findById(req.params.id);
+    const { id } = req.params;
 
-    if (!request) return res.status(404).json({ message: 'Request not found' });
-    if (!request.invoice || !request.invoice.filePath)
+    // 1️⃣ Check if id exists
+    if (!id) {
+      return res.status(400).json({ message: 'Request ID is required' });
+    }
+
+    // 2️⃣ Validate ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid Request ID' });
+    }
+
+    const request = await Request.findById(id);
+
+    if (!request) {
+      return res.status(404).json({ message: 'Request not found' });
+    }
+
+    if (!request.invoice || !request.invoice.filePath) {
       return res.status(404).json({ message: 'Invoice not uploaded yet' });
+    }
 
-    // Only admin or the user who made the request can access it
     if (req.user.role !== 'admin' && request.user.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
     const filePath = path.join(__dirname, '..', request.invoice.filePath);
     res.download(filePath);
-  } catch (err) {
-    console.error('❌ Get Invoice Error:', err);
-    res.status(500).json({ message: 'Failed to fetch invoice', error: err.message });
-  }
-};
-exports.getInvoice = async (req, res) => {
-  try {
-    const request = await Request.findById(req.params.id);
 
-    if (!request) return res.status(404).json({ message: 'Request not found' });
-    if (!request.invoice || !request.invoice.filePath)
-      return res.status(404).json({ message: 'Invoice not uploaded yet' });
-
-    // Only admin or the user who made the request can access it
-    if (req.user.role !== 'admin' && request.user.toString() !== req.user.id) {
-      return res.status(403).json({ message: 'Unauthorized' });
-    }
-
-    const filePath = path.join(__dirname, '..', request.invoice.filePath);
-    res.download(filePath);
   } catch (err) {
     console.error('❌ Get Invoice Error:', err);
     res.status(500).json({ message: 'Failed to fetch invoice', error: err.message });

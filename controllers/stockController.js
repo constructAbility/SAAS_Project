@@ -18,10 +18,9 @@ exports.createOrUpdateStock = async (req, res) => {
       return res.status(400).json({ message: 'Item name, quantity, and rate are required.' });
     }
 
-    // Normalize name
     const normalizedItemName = itemName.trim().toLowerCase();
 
-    // 🔍 Find existing item by name
+    // 🔍 Find item by name
     let item = await Item.findOne({ name: normalizedItemName });
 
     if (!item) {
@@ -30,12 +29,12 @@ exports.createOrUpdateStock = async (req, res) => {
         name: normalizedItemName,
         description: description || 'No description provided',
         category: category || 'Uncategorized',
-        HNBC: HNBC,
-        unit: unit
+        HNBC,
+        unit
       });
       await item.save();
     } else {
-      // ✅ Item already exists → update only non-name fields
+      // ✅ Update fields except name
       let changed = false;
 
       if (description && description !== item.description) {
@@ -58,7 +57,7 @@ exports.createOrUpdateStock = async (req, res) => {
       if (changed) await item.save();
     }
 
-    // ✅ Add/update stock for admin
+    // ✅ Find existing stock for this item + admin + branch
     let stock = await Stock.findOne({
       item: item._id,
       ownerId: req.user._id,
@@ -67,11 +66,14 @@ exports.createOrUpdateStock = async (req, res) => {
     });
 
     if (stock) {
-      // ✅ Update quantity and rate
-      stock.quantity += quantity;
+      // Update existing stock
+      stock.quantity = quantity; // replace quantity instead of adding
       stock.rate = rate;
+      stock.category = category;
+      stock.HNBC = HNBC;
+      stock.unit = unit;
     } else {
-      // ✅ Create new stock record
+      // Create new stock only if not present
       stock = new Stock({
         item: item._id,
         quantity,
@@ -87,30 +89,18 @@ exports.createOrUpdateStock = async (req, res) => {
 
     await stock.save();
 
-    return res.status(200).json({
+    res.status(200).json({
       message: 'Stock successfully added/updated',
-      item: {
-        name: item.name,
-        category: item.category,
-        description: item.description,
-        HNBC: item.HNBC,
-        unit: item.unit
-      },
-      updatedStock: {
-        quantity: stock.quantity,
-        unit: stock.unit,
-        rate: stock.rate,
-        value: stock.value,
-        category: stock.category,
-        branch: stock.branch
-      }
+      item,
+      updatedStock: stock
     });
 
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Error adding/updating stock', error: error.message });
+    console.error('❌ Error:', error);
+    res.status(500).json({ message: 'Error adding/updating stock', error: error.message });
   }
 };
+
 
 exports.createOrUpdateStockUser = async (req, res) => {
   try {
@@ -127,21 +117,21 @@ exports.createOrUpdateStockUser = async (req, res) => {
 
     const normalizedItemName = itemName.trim().toLowerCase();
 
-    // 🔍 Find existing item by name
+    // 🔍 Find existing item
     let item = await Item.findOne({ name: normalizedItemName });
 
     if (!item) {
-      // ✅ Create new item if doesn't exist
+      // ✅ Create new item (only first time)
       item = new Item({
         name: normalizedItemName,
         description: description || 'No description provided',
         category: category || 'Uncategorized',
-        HNBC: HNBC,
-        unit: unit
+        HNBC,
+        unit
       });
       await item.save();
     } else {
-      // 🚫 Prevent name change — update other fields only
+      // ✅ Update only non-name fields
       let changed = false;
 
       if (description && description !== item.description) {
@@ -164,7 +154,7 @@ exports.createOrUpdateStockUser = async (req, res) => {
       if (changed) await item.save();
     }
 
-    // ✅ Add/update stock for user
+    // ✅ Find or update user's stock
     let stock = await Stock.findOne({
       item: item._id,
       ownerId: req.user._id,
@@ -173,8 +163,11 @@ exports.createOrUpdateStockUser = async (req, res) => {
     });
 
     if (stock) {
-      stock.quantity += quantity;
+      stock.quantity = quantity; // overwrite instead of adding
       stock.rate = rate;
+      stock.category = category;
+      stock.HNBC = HNBC;
+      stock.unit = unit;
     } else {
       stock = new Stock({
         item: item._id,
@@ -191,30 +184,18 @@ exports.createOrUpdateStockUser = async (req, res) => {
 
     await stock.save();
 
-    return res.status(200).json({
+    res.status(200).json({
       message: 'Stock successfully added/updated',
-      item: {
-        name: item.name,
-        category: item.category,
-        description: item.description,
-        HNBC: item.HNBC,
-        unit: item.unit
-      },
-      updatedStock: {
-        quantity: stock.quantity,
-        rate: stock.rate,
-        value: stock.value,
-        unit: stock.unit,
-        category: stock.category,
-        branch: stock.branch
-      }
+      item,
+      updatedStock: stock
     });
 
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Error adding/updating stock', error: error.message });
+    console.error('❌ Error:', error);
+    res.status(500).json({ message: 'Error adding/updating stock', error: error.message });
   }
 };
+
 
 
 
