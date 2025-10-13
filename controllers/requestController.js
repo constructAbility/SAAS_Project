@@ -292,13 +292,15 @@ if (userStock) {
   userStock.quantity += quantity;
 } else {
   userStock = new Stock({
-    item: item._id,
-    quantity,
-    rate: adminStock.rate,
-    branch: adminStock.branch,  // ✅ IMPORTANT
-    ownerId: request.user._id,
-    ownerType: 'user'
-  });
+  item: item._id,
+  quantity,
+  rate: adminStock.rate,
+  branch: adminStock.branch,
+  ownerId: request.user._id,
+  ownerType: 'user',
+  requestId: request._id 
+});
+
 }
 
 
@@ -680,51 +682,72 @@ exports.getInvoice = async (req, res) => {
   try {
     let { id } = req.params;
 
+    // 🟢 If no ID provided, auto-detect latest dispatched one
     if (!id || id === 'auto') {
       let latest;
       if (req.user.role === 'admin') {
-        latest = await Request.findOne({ 'invoice.filePath': { $exists: true } }).sort({ updatedAt: -1 });
+        latest = await Request.findOne({
+          status: 'dispatched',
+          'invoice.filePath': { $exists: true }
+        }).sort({ updatedAt: -1 });
       } else {
         latest = await Request.findOne({
           user: req.user._id,
+          status: 'dispatched',
           'invoice.filePath': { $exists: true }
         }).sort({ updatedAt: -1 });
       }
+
       if (!latest) {
         return res.status(404).json({
           message: req.user.role === 'admin'
-            ? 'No invoice found for admin.'
-            : 'No invoice found for your requests.'
+            ? 'No dispatched invoice found for admin.'
+            : 'No dispatched invoice found for your requests.'
         });
       }
+
       id = latest._id;
     }
 
+    // 🟢 Validate ID
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: 'Invalid Request ID' });
     }
 
+    // 🟢 Find request
     const request = await Request.findById(id).populate('user');
-    if (!request) return res.status(404).json({ message: 'Request not found' });
+    if (!request) return res.status(404).json({ message: 'Request not found.' });
 
-    if (!request.invoice || !request.invoice.filePath) {
-      return res.status(404).json({ message: 'Invoice not uploaded yet' });
+    // ❌ If request not yet dispatched
+    if (request.status !== 'dispatched') {
+      return res.status(400).json({
+        message: 'Invoice can only be downloaded after dispatch.'
+      });
     }
 
+    // ❌ If invoice missing
+    if (!request.invoice?.filePath) {
+      return res.status(404).json({ message: 'Invoice not uploaded yet.' });
+    }
+
+    // 🟢 Access control — admin or owner only
     if (
       req.user.role !== 'admin' &&
       request.user._id.toString() !== req.user._id.toString()
     ) {
-      return res.status(403).json({ message: 'Unauthorized' });
+      return res.status(403).json({ message: 'Unauthorized access.' });
     }
 
+    // 🟢 Locate file
     const invoicePath = path.join(__dirname, '..', request.invoice.filePath.replace(/^\/+/, ''));
     if (!fs.existsSync(invoicePath)) {
       return res.status(404).json({ message: 'Invoice file missing on server.' });
     }
 
+    // 🟢 Download
     res.download(invoicePath);
   } catch (err) {
+    console.error('❌ Invoice error:', err);
     res.status(500).json({ message: 'Error fetching invoice', error: err.message });
   }
 };
