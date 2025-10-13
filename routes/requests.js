@@ -30,7 +30,7 @@ router.get('/orders/status-report',auth, checkRole('user'),getOrderStatusReport)
 router.get('/get-sales',auth,checkRole('user'),getSales)
 router.get('/get-sales-pdf',auth,checkRole('user'),downloadSalesPdf )
 router.post('/requests/:id/upload-invoice', auth, checkRole('admin'), uploadInvoice);
-router.get('/requests/:id/invoice-user', auth, checkRole('user'), getInvoice);
+
 // 🟠 Get invoice file for a request
 router.get('/requests/:id/invoice', auth, checkRole('admin'), getInvoice);
 
