@@ -36,19 +36,18 @@ const upload = multer({ storage, fileFilter });
 
 
 exports.uploadInvoice = [
-  upload.single('invoice'), // 👈 the field name must be 'invoice'
+  upload.single('invoice'),
   async (req, res) => {
     try {
-      if (req.user.role !== 'admin') {
-        return res.status(403).json({ message: 'Only admin can upload invoices' });
+      if (!['admin', 'user'].includes(req.user.role)) {
+        return res.status(403).json({ message: 'Unauthorized to upload invoice' });
       }
 
       const request = await Request.findById(req.params.id);
-      if (!request) {
-        return res.status(404).json({ message: 'Request not found' });
-      }
+      if (!request) return res.status(404).json({ message: 'Request not found' });
 
-      if (request.status !== 'approved') {
+      // 🟡 Admin rule — only after approval
+      if (req.user.role === 'admin' && request.status !== 'approved') {
         return res.status(400).json({ message: 'Invoice can only be uploaded after approval' });
       }
 
@@ -56,29 +55,35 @@ exports.uploadInvoice = [
         return res.status(400).json({ message: 'No file uploaded. Use field name "invoice".' });
       }
 
-      // Save invoice info
       request.invoice = {
         filePath: `/uploads/invoices/${req.file.filename}`,
         fileType: req.file.mimetype.includes('pdf') ? 'pdf' : 'image',
         uploadedBy: req.user._id,
       };
 
-      request.status = 'invoice_uploaded';
+      // 🟡 Update status
+      request.status = req.user.role === 'admin'
+        ? 'invoice_uploaded'
+        : 'invoice_uploaded_by_user';
+
       request.timestamps = request.timestamps || {};
       request.timestamps.invoiceUploaded = new Date();
 
       await request.save();
 
       res.status(200).json({
-        message: 'Invoice uploaded successfully',
+        message: `${req.user.role === 'admin' ? 'Admin' : 'User'} invoice uploaded successfully`,
         invoicePath: request.invoice.filePath,
       });
+
     } catch (err) {
       console.error('❌ Upload Invoice Error:', err);
       res.status(500).json({ message: 'Failed to upload invoice', error: err.message });
     }
   }
 ];
+
+
 
 
 // Generate token like: REQ-2025-00001
@@ -135,6 +140,34 @@ exports.getAllRequests = async (req, res) => {
   }
 };
 
+exports.getMyRequests = async (req, res) => {
+  try {
+    // 🔹 Logged-in user ka ID lo (JWT se)
+    const userId = req.user._id;
+
+    console.log('🟢 Fetching requests for user:', userId);
+
+    // 🔹 Fetch all requests created by this user
+    const myRequests = await Request.find({ user: userId })
+      .sort({ createdAt: -1 }) // Latest first
+      .lean();
+
+    if (!myRequests || myRequests.length === 0) {
+      return res.status(200).json({ message: 'No requests found for this user.', data: [] });
+    }
+
+    // 🔹 Send response
+    res.status(200).json({
+      message: 'User requests fetched successfully',
+      count: myRequests.length,
+      requests: myRequests
+    });
+
+  } catch (err) {
+    console.error('❌ Error fetching user requests:', err);
+    res.status(500).json({ message: 'Error fetching your requests', error: err.message });
+  }
+};
 
 exports.approveRequest = async (req, res) => {
   try {
@@ -631,7 +664,7 @@ exports.downloadSalesPdf = async (req, res) => {
     doc.moveTo(startX, y + 5).lineTo(550, y + 5).stroke();
 
 
-    // Grand total
+ 
     doc.font('Helvetica-Bold').fontSize(13);
     doc.text(`Grand Total(RS): ${grandTotal.toFixed(2)}`, startX, y + 15, { align: 'right' });
 
@@ -640,59 +673,58 @@ exports.downloadSalesPdf = async (req, res) => {
     res.status(500).json({ message: 'Failed to generate PDF', error: err.message });
   }
 };
-// exports.getInvoice = async (req, res) => {
-//   try {
-//     const request = await Request.findById(req.params.id);
 
-//     if (!request) return res.status(404).json({ message: 'Request not found' });
-//     if (!request.invoice || !request.invoice.filePath)
-//       return res.status(404).json({ message: 'Invoice not uploaded yet' });
 
-//     // Only admin or the user who made the request can access it
-//     if (req.user.role !== 'admin' && request.user.toString() !== req.user.id) {
-//       return res.status(403).json({ message: 'Unauthorized' });
-//     }
 
-//     const filePath = path.join(__dirname, '..', request.invoice.filePath);
-//     res.download(filePath);
-//   } catch (err) {
-//     console.error('❌ Get Invoice Error:', err);
-//     res.status(500).json({ message: 'Failed to fetch invoice', error: err.message });
-//   }
-// };
 exports.getInvoice = async (req, res) => {
   try {
-    const { id } = req.params;
+    let { id } = req.params;
 
-    // 1️⃣ Check if id exists
-    if (!id) {
-      return res.status(400).json({ message: 'Request ID is required' });
+    if (!id || id === 'auto') {
+      let latest;
+      if (req.user.role === 'admin') {
+        latest = await Request.findOne({ 'invoice.filePath': { $exists: true } }).sort({ updatedAt: -1 });
+      } else {
+        latest = await Request.findOne({
+          user: req.user._id,
+          'invoice.filePath': { $exists: true }
+        }).sort({ updatedAt: -1 });
+      }
+      if (!latest) {
+        return res.status(404).json({
+          message: req.user.role === 'admin'
+            ? 'No invoice found for admin.'
+            : 'No invoice found for your requests.'
+        });
+      }
+      id = latest._id;
     }
 
-    // 2️⃣ Validate ObjectId
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: 'Invalid Request ID' });
     }
 
-    const request = await Request.findById(id);
-
-    if (!request) {
-      return res.status(404).json({ message: 'Request not found' });
-    }
+    const request = await Request.findById(id).populate('user');
+    if (!request) return res.status(404).json({ message: 'Request not found' });
 
     if (!request.invoice || !request.invoice.filePath) {
       return res.status(404).json({ message: 'Invoice not uploaded yet' });
     }
 
-    if (req.user.role !== 'admin' && request.user.toString() !== req.user.id) {
+    if (
+      req.user.role !== 'admin' &&
+      request.user._id.toString() !== req.user._id.toString()
+    ) {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    const filePath = path.join(__dirname, '..', request.invoice.filePath);
-    res.download(filePath);
+    const invoicePath = path.join(__dirname, '..', request.invoice.filePath.replace(/^\/+/, ''));
+    if (!fs.existsSync(invoicePath)) {
+      return res.status(404).json({ message: 'Invoice file missing on server.' });
+    }
 
+    res.download(invoicePath);
   } catch (err) {
-    console.error('❌ Get Invoice Error:', err);
-    res.status(500).json({ message: 'Failed to fetch invoice', error: err.message });
+    res.status(500).json({ message: 'Error fetching invoice', error: err.message });
   }
 };
