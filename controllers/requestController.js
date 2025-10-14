@@ -889,3 +889,132 @@ exports.getAllDispatches = async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch dispatch records', error: err.message });
   }
 };
+exports.getSystemOverview = async (req, res) => {
+  try {
+    if (req.user.role !== 'superadmin')
+      return res.status(403).json({ message: 'Only superadmin can view system overview' });
+
+    const totalCompanies = await User.countDocuments({ role: 'admin' });
+    const totalUsers = await User.countDocuments({ role: 'user' });
+    const totalRequests = await Request.countDocuments();
+    const totalDispatches = await Request.countDocuments({ status: 'dispatched' });
+    const totalSales = await Sale.countDocuments();
+
+    res.status(200).json({
+      message: 'System overview fetched successfully',
+      summary: {
+        totalCompanies,
+        totalUsers,
+        totalRequests,
+        totalDispatches,
+        totalSales
+      }
+    });
+  } catch (err) {
+    console.error('❌ System overview error:', err);
+    res.status(500).json({ message: 'Failed to fetch overview', error: err.message });
+  }
+};
+
+
+exports.superAdminMonitor = async (req, res) => {
+  try {
+  
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ message: 'Access denied. Only superadmin can access this dashboard.' });
+    }
+
+  
+    const [
+      totalCompanies,
+      totalUsers,
+      totalRequests,
+      totalApprovedRequests,
+      totalRejectedRequests,
+      totalDispatchedRequests,
+      totalSales
+    ] = await Promise.all([
+      User.countDocuments({ role: 'admin' }),
+      User.countDocuments({ role: 'user' }),
+      Request.countDocuments(),
+      Request.countDocuments({ status: 'approved' }),
+      Request.countDocuments({ status: 'rejected' }),
+      Request.countDocuments({ status: 'dispatched' }),
+      Sale.countDocuments()
+    ]);
+
+   
+    const recentRequests = await Request.find()
+      .populate('user', 'name email branch')
+      .populate('company', 'name')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    const recentDispatches = await Dispatch.find()
+      .populate('item', 'name')
+      .populate('dispatchedBy', 'name email')
+      .populate('dispatchedTo', 'name email')
+      .sort({ dispatchedAt: -1 })
+      .limit(5)
+      .lean();
+
+    const recentSales = await Sale.find()
+      .populate('item', 'name')
+      .populate('userId', 'name email')
+      .sort({ saleDate: -1 })
+      .limit(5)
+      .lean();
+
+  
+    const summary = {
+      totalCompanies,
+      totalUsers,
+      totalRequests,
+      totalApprovedRequests,
+      totalRejectedRequests,
+      totalDispatchedRequests,
+      totalSales
+    };
+
+    const activity = {
+      recentRequests: recentRequests.map(r => ({
+        id: r._id,
+        item: r.itemName,
+        quantity: r.quantity,
+        company: r.company?.name,
+        requestedBy: r.user?.name,
+        status: r.status,
+        date: r.createdAt ? new Date(r.createdAt).toLocaleString() : '-'
+      })),
+      recentDispatches: recentDispatches.map(d => ({
+        id: d._id,
+        item: d.item?.name,
+        quantity: d.quantity,
+        dispatchedBy: d.dispatchedBy?.name,
+        dispatchedTo: d.dispatchedTo?.name,
+        branch: d.branch,
+        date: d.dispatchedAt ? new Date(d.dispatchedAt).toLocaleString() : '-'
+      })),
+      recentSales: recentSales.map(s => ({
+        id: s._id,
+        item: s.item?.name,
+        quantity: s.quantity,
+        soldBy: s.userId?.name,
+        totalValue: s.totalValue,
+        date: s.saleDate ? new Date(s.saleDate).toLocaleString() : '-'
+      }))
+    };
+
+   
+    res.status(200).json({
+      message: 'Superadmin monitoring data fetched successfully',
+      summary,
+      activity
+    });
+
+  } catch (err) {
+    console.error('❌ Superadmin Monitor Error:', err);
+    res.status(500).json({ message: 'Failed to fetch superadmin dashboard', error: err.message });
+  }
+};

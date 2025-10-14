@@ -20,7 +20,7 @@ const {
   downloadSalesPdf,
   getInvoice,
   uploadInvoice,
-  getMyRequests,getAllDispatches
+  getMyRequests,getAllDispatches, superAdminMonitor
 } = require('../controllers/requestController');
 
 
@@ -43,8 +43,9 @@ router.get('/sales-summary', auth, checkRole('admin'), getDispatchSummary);
 router.get('/sales-summary-pdf', auth, checkRole('admin'), getDispatchSummaryPDF);
 router.post('/requests/:id/upload-invoice', auth, checkRole('admin'), uploadInvoice);
 
+// 🟣 SUPER ADMIN ROUTE
+router.get('/superadmin/monitor', auth, checkRole('superadmin'), superAdminMonitor);
 
-// 🟢 INVOICE ROUTES (for both admin & user)
 
 // ✅ Download a specific invoice by Request ID
 router.get('/requests/:id/invoice', auth, getInvoice);
