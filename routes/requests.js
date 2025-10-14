@@ -20,7 +20,7 @@ const {
   downloadSalesPdf,
   getInvoice,
   uploadInvoice,
-  getMyRequests
+  getMyRequests,getAllDispatches
 } = require('../controllers/requestController');
 
 
@@ -52,7 +52,7 @@ router.get('/requests/:id/invoice', auth, getInvoice);
 // ✅ Download the latest invoice automatically for current user/admin
 router.get('/requests/invoice', auth, getInvoice);
 
-
+router.get('/all-dispatch', auth,getAllDispatches);
 // (❌ Removed duplicate inline route definition)
 
 module.exports = router;

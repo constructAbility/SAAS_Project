@@ -6,6 +6,7 @@ const sendEmail = require('../utils/sendEmail');
 const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
+const Dispatch = require('../model/Dispatch')
 const Sale = require('../model/sales')
 const mongoose = require('mongoose');
 const multer = require('multer');
@@ -91,18 +92,29 @@ const generateToken = (id) => {
   return `REQ-${new Date().getFullYear()}-${String(id).padStart(5, '0')}`;
 };
 
-
 exports.createRequest = async (req, res) => {
   try {
-    const { itemName, quantity, requiredDate, priority,Decofitem } = req.body;
+    const { itemName, quantity, requiredDate, priority, Decofitem, companyName } = req.body;
 
-    if (!itemName || !quantity || quantity <= 0) {
-      return res.status(400).json({ message: 'Item name and valid quantity are required' });
+    if (!itemName || !quantity || quantity <= 0 || !companyName) {
+      return res.status(400).json({ message: 'Item name, valid quantity, and company name are required' });
     }
 
+    // ✅ Logged-in user
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
+    // ✅ Find company by name (case insensitive)
+    const company = await User.findOne({
+      name: { $regex: new RegExp(`^${companyName}$`, 'i') },
+      role: { $in: ['admin', 'superadmin'] }
+    });
+
+    if (!company) {
+      return res.status(404).json({ message: `Company "${companyName}" not found or not authorized` });
+    }
+
+    // ✅ Create new request
     const request = new Request({
       user: user._id,
       itemName,
@@ -110,30 +122,42 @@ exports.createRequest = async (req, res) => {
       requiredDate,
       Decofitem,
       priority: priority || 'Medium',
-      deliveryAddress: user.location
+      deliveryAddress: user.location,
+      company: company._id // ✅ link to found company
     });
 
     const saved = await request.save();
 
-    res.status(201).json({ message: 'Request submitted', request: saved });
+    res.status(201).json({
+      message: `Request successfully submitted to company "${company.name}"`,
+      request: saved
+    });
+
   } catch (err) {
+    console.error('❌ Request Create Error:', err);
     res.status(500).json({ message: 'Failed to submit request', error: err.message });
   }
 };
 
 
+
 exports.getAllRequests = async (req, res) => {
   try {
-  
-    let requests;
+    let filter = {};
+
     if (req.user.role === 'admin') {
-      requests = await Request.find()
-        .populate('user', 'name email branch')
-        // .populate('item', 'name');
-    } else {
-      requests = await Request.find({ user: req.user.userId })
-        .populate('item', 'name');
+      // ✅ Admin will only see requests sent to their company
+      filter.company = req.user._id;
+    } else if (req.user.role === 'user') {
+      // ✅ User sees only their own requests
+      filter.user = req.user._id;
     }
+
+    const requests = await Request.find(filter)
+      .populate('user', 'name email branch')
+      .populate('company', 'name email') // show which company it's assigned to
+      .sort({ createdAt: -1 });
+
     res.json(requests);
   } catch (err) {
     res.status(500).json({ message: 'Error fetching requests', error: err.message });
@@ -175,41 +199,45 @@ exports.approveRequest = async (req, res) => {
       return res.status(403).json({ message: 'Only admin can approve requests' });
     }
 
-    const request = await Request.findById(req.params.id).populate('user');
+    const request = await Request.findById(req.params.id).populate('user company');
     if (!request) return res.status(404).json({ message: 'Request not found' });
-    if (request.status !== 'requested') return res.status(400).json({ message: 'Already processed' });
+
+    // ✅ Check company ownership
+    if (request.company._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'You are not authorized to approve this request' });
+    }
+
+    if (request.status !== 'requested')
+      return res.status(400).json({ message: 'Request already processed' });
 
     request.status = 'approved';
     request.timestamps.approved = new Date();
     request.token = `REQ-${new Date().getFullYear()}-${String(request._id).slice(-5).toUpperCase()}`;
     await request.save();
 
-    console.log('➡ Approving request and sending email...');
-
-    // await sendEmail(
-    //   request.user.email,
-    //   `✅ Request Approved: ${request.token}`,
-    //   `Hello ${request.user.name},\n\nYour request for item "${request.itemName}" has been approved.\n\nToken: ${request.token}\n\nThank you!`
-    // );
-
-    console.log('✅ Email sent via Nodemailer (Gmail)');
-
-    res.json({ message: 'Request approved and email sent', request });
-
+    res.json({ message: 'Request approved successfully', request });
   } catch (err) {
-    console.error('❌ Approval or Email failed:', err.message);
+    console.error('❌ Approval error:', err);
     res.status(500).json({ message: 'Approval failed', error: err.message });
   }
 };
 
+// 🔹 REJECT REQUEST (Only Admin)
 exports.rejectRequest = async (req, res) => {
   try {
     if (req.user.role !== 'admin')
       return res.status(403).json({ message: 'Only admin can reject requests' });
 
-    const request = await Request.findById(req.params.id).populate('user');
+    const request = await Request.findById(req.params.id).populate('user company');
     if (!request) return res.status(404).json({ message: 'Request not found' });
-    if (request.status !== 'requested') return res.status(400).json({ message: 'Already processed' });
+
+    // ✅ Check company ownership
+    if (request.company._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'You are not authorized to reject this request' });
+    }
+
+    if (request.status !== 'requested')
+      return res.status(400).json({ message: 'Request already processed' });
 
     const { reason } = req.body;
 
@@ -217,105 +245,125 @@ exports.rejectRequest = async (req, res) => {
     request.rejectionReason = reason || 'No reason provided';
     await request.save();
 
-    // await sendEmail(
-    //   request.user.email,
-    //   `Request Rejected`,
-    //   `Hello ${request.user.name},\n\nYour request for item "${request.item.name}" has been rejected.\nReason: ${request.rejectionReason}\n\nThank you!`
-    // );
-
-    res.json({ message: 'Request rejected and email sent', request });
+    res.json({ message: 'Request rejected successfully', request });
   } catch (err) {
+    console.error('❌ Rejection error:', err);
     res.status(500).json({ message: 'Rejection failed', error: err.message });
   }
 };
+
+// 🔹 DISPATCH REQUEST (Only Admin)
 exports.dispatchRequest = async (req, res) => {
   try {
+    // 🧩 Only admin can dispatch
     if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Only admin can dispatch' });
+      return res.status(403).json({ message: 'Only admin can dispatch requests' });
     }
 
-    // 🔍 Find request
-    const request = await Request.findById(req.params.id).populate('user', 'name email');
-    if (!request) return res.status(404).json({ message: 'Request not found' });
+    // 🧩 Find request with user + company populated
+    const request = await Request.findById(req.params.id)
+      .populate('user', 'name email')
+      .populate('company', 'name');
 
-    // if (request.status !== 'approved') {
-    //   return res.status(400).json({ message: 'Request is not approved yet' });
-    // }
+    if (!request) {
+      return res.status(404).json({ message: 'Request not found' });
+    }
 
-    if (request.status !== 'invoice_uploaded') {
+    // 🧩 Check if admin belongs to same company
+    if (request.company._id.toString() !== req.user.companyId.toString()) {
+      return res.status(403).json({ message: 'Not authorized to dispatch this request' });
+    }
+
+    // ✅ Allow dispatch if invoice uploaded by admin or user
+    if (
+      request.status !== 'invoice_uploaded' &&
+      request.status !== 'invoice_uploaded_by_user'
+    ) {
       return res.status(400).json({ message: 'Cannot dispatch. Invoice not uploaded yet.' });
     }
+
     const { quantity, itemName } = request;
 
-    // 🔍 Get admin user (dispatcher)
-    const adminUser = await User.findById(req.user.id);
+    // 🧩 Verify admin user
+    const adminUser = await User.findById(req.user._id);
     if (!adminUser) {
       return res.status(404).json({ message: 'Admin user not found' });
     }
 
-    // 🔍 Find item by normalized name
-   const normalizedItemName = itemName.trim().toLowerCase();
-const item = await Item.findOne({ name: normalizedItemName });
-
+    // 🧩 Find the item
+    const normalizedItemName = itemName.trim().toLowerCase();
+    const item = await Item.findOne({ name: normalizedItemName });
     if (!item) {
       return res.status(400).json({ message: `Item "${itemName}" not found` });
     }
 
-    // 🔍 Check if admin has stock
+    // 🧩 Check admin stock
     const adminStock = await Stock.findOne({
       item: item._id,
       ownerId: adminUser._id,
       ownerType: 'admin'
     });
-
     if (!adminStock) {
-      return res.status(404).json({ message: `Admin stock not found for item: ${itemName}` });
+      return res.status(404).json({ message: `Admin stock not found for ${itemName}` });
     }
-
     if (adminStock.quantity < quantity) {
       return res.status(400).json({
         message: `Insufficient stock. Available: ${adminStock.quantity}, Required: ${quantity}`
       });
     }
 
-    // ✅ Deduct quantity from admin
+    // ✅ Deduct from admin stock
     adminStock.quantity -= quantity;
     await adminStock.save();
 
-    // ✅ Add to user's stock
+    // ✅ Merge or create user stock
     let userStock = await Stock.findOne({
       item: item._id,
       ownerId: request.user._id,
       ownerType: 'user'
     });
-if (userStock) {
-  userStock.quantity += quantity;
-} else {
-  userStock = new Stock({
-  item: item._id,
-  quantity,
-  rate: adminStock.rate,
-  branch: adminStock.branch,
-  ownerId: request.user._id,
-  ownerType: 'user',
-  requestId: request._id 
-});
 
-}
-
-
+    if (userStock) {
+      userStock.quantity += quantity;
+    } else {
+      userStock = new Stock({
+        item: item._id,
+        quantity,
+        rate: adminStock.rate,
+        branch: adminStock.branch,
+        ownerId: request.user._id,
+        ownerType: 'user',
+        requestId: request._id
+      });
+    }
     await userStock.save();
 
-    // ✅ Update request status
+    // ✅ Create dispatch record
+    const dispatchRecord = new Dispatch({
+      requestId: request._id,
+      item: item._id,
+      quantity,
+      rate: adminStock.rate,
+      branch: adminStock.branch,
+      dispatchedBy: adminUser._id,
+      dispatchedTo: request.user._id,
+      dispatchedAt: new Date(),
+      invoiceNo: `INV-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+    });
+    await dispatchRecord.save();
+
+    // ✅ Update request
     request.status = 'dispatched';
     request.timestamps = request.timestamps || {};
     request.timestamps.dispatched = new Date();
     await request.save();
 
+    // ✅ Success response
     return res.status(200).json({
       message: 'Request dispatched successfully',
       adminRemainingStock: adminStock.quantity,
       userTotalStock: userStock.quantity,
+      dispatchRecord,
       request
     });
 
@@ -325,7 +373,8 @@ if (userStock) {
   }
 };
 
-// controllers/requestController.js
+
+
 
 exports.getDispatchCount = async (req, res) => {
   try {
@@ -396,24 +445,34 @@ exports.getDispatchSummary = async (req, res) => {
 };
 
 
-// make sure path is correct
+
+
 
 exports.getDispatchSummaryPDF = async (req, res) => {
   try {
-    if (req.user.role !== 'admin') {
-      return res.status(403).json({ message: 'Unauthorized' });
+    // ✅ Access Control
+    if (!['admin', 'superadmin'].includes(req.user.role)) {
+      return res.status(403).json({ message: 'Unauthorized access' });
     }
 
-    // Fetch all dispatched requests with item and user info
-    const dispatchedRequests = await Request.find({ status: 'dispatched' })
-      .populate('item', 'name')      
-      .populate('user', 'name branch') // get user info
+    // ✅ Filter: Admin gets only their company's dispatched requests
+    const filter = { status: 'dispatched' };
+    if (req.user.role === 'admin') {
+      filter.company = req.user._id; // only admin’s company data
+    }
+
+    // ✅ Fetch dispatched requests with related data
+    const dispatchedRequests = await Request.find(filter)
+      .populate('item', 'name')
+      .populate('user', 'name branch')
+      .populate('company', 'name email')
       .lean();
 
     if (!dispatchedRequests.length) {
-      return res.status(200).json({ message: 'No dispatched records available' });
+      return res.status(200).json({ message: 'No dispatched records found' });
     }
 
+    // ✅ Setup PDF document
     const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'portrait' });
     const tempDir = path.join(__dirname, '..', 'temp');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
@@ -422,71 +481,87 @@ exports.getDispatchSummaryPDF = async (req, res) => {
     const writeStream = fs.createWriteStream(filePath);
     doc.pipe(writeStream);
 
-    // Header
+    // ✅ Header Section
     doc.fontSize(16).text('DISPATCH SUMMARY REPORT', { align: 'center' });
-    doc.fontSize(14).text(`Branch: All Branches`, { align: 'center' });
+    if (req.user.role === 'admin') {
+      doc.fontSize(13).text(`Company: ${req.user.name}`, { align: 'center' });
+    } else {
+      doc.fontSize(13).text(`Company: All Companies`, { align: 'center' });
+    }
     doc.fontSize(12).text(`Generated On: ${new Date().toLocaleDateString()}`, { align: 'center' });
     doc.moveDown(2);
 
-    // Table header
-    doc.fontSize(10);
-    const tableTop = doc.y;
-    const itemX = 30;
-    const qtyX = 150;
-    const rateX = 200;
-    const valueX = 260;
-    const toX = 320;
-    const branchX = 430;
-    const issuedByX = 500;
-    const dateX = 570;
+    // ✅ Table Header
+    doc.fontSize(10).font('Helvetica-Bold');
+    const headers = [
+      { label: 'Item', x: 30 },
+      { label: 'Qty', x: 130 },
+      { label: 'Rate', x: 180 },
+      { label: 'Value', x: 240 },
+      { label: 'Dispatched To', x: 310 },
+      { label: 'Branch', x: 420 },
+      { label: 'Requested By', x: 490 },
+      { label: 'Date', x: 560 }
+    ];
 
-    doc.text('Item', itemX, tableTop);
-    doc.text('Qty', qtyX, tableTop);
-    doc.text('Rate', rateX, tableTop);
-    doc.text('Value', valueX, tableTop);
-    doc.text('Dispatched To', toX, tableTop);
-    doc.text('Branch', branchX, tableTop);
-    doc.text('Requested By', issuedByX, tableTop);
-    doc.text('Date', dateX, tableTop);
-    doc.moveDown();
+    headers.forEach(h => doc.text(h.label, h.x, doc.y, { continued: false }));
+    doc.moveDown(0.5);
+    doc.moveTo(30, doc.y).lineTo(580, doc.y).stroke();
 
-    // Draw line
-    doc.moveTo(itemX, doc.y).lineTo(600, doc.y).stroke();
+    doc.font('Helvetica').fontSize(9);
 
+    // ✅ Table Content
     for (const record of dispatchedRequests) {
       const y = doc.y + 5;
-      const quantity = typeof record.quantity === 'number' ? record.quantity : 0;
-
-      // 🔹 Fetch stock info for this item & branch
-      const stock = await Stock.findOne({ item: record.item?._id, branch: record.user?.branch }).lean();
-      const rate = stock?.rate || 0;
-      const value = stock?.value || quantity * rate;
-
       const itemName = record.item?.name || record.itemName || 'Unknown';
-      const requestedBy = record.user?.name || 'Unknown';
+      const quantity = record.quantity || 0;
+
+      // 🔹 Fetch stock info for rate/value (based on branch)
+      const stock = await Stock.findOne({
+        item: record.item?._id,
+        branch: record.user?.branch
+      }).lean();
+
+      const rate = stock?.rate || 0;
+      const value = quantity * rate;
+      const dispatchedTo = record.user?.name || '-';
       const branch = record.user?.branch || '-';
+      const requestedBy = record.company?.name || '-';
       const date = record.timestamps?.dispatched
         ? new Date(record.timestamps.dispatched).toLocaleDateString()
         : 'N/A';
 
-      doc.text(itemName, itemX, y, { width: 120 });
-      doc.text(quantity, qtyX, y);
-      doc.text(rate.toFixed(2), rateX, y);
-      doc.text(value.toFixed(2), valueX, y);
-      doc.text(record.token || '-', toX, y, { width: 100 });
-      doc.text(branch, branchX, y, { width: 60 });
-      doc.text(requestedBy, issuedByX, y, { width: 60 });
-      doc.text(date, dateX, y);
+      doc.text(itemName, 30, y);
+      doc.text(quantity.toString(), 130, y);
+      doc.text(rate.toFixed(2), 180, y);
+      doc.text(value.toFixed(2), 240, y);
+      doc.text(dispatchedTo, 310, y, { width: 100 });
+      doc.text(branch, 420, y, { width: 60 });
+      doc.text(requestedBy, 490, y, { width: 60 });
+      doc.text(date, 560, y);
       doc.moveDown();
     }
 
+    // ✅ Footer Summary
+    doc.moveDown(2);
+    const totalCount = dispatchedRequests.length;
+    const totalValue = dispatchedRequests.reduce((acc, r) => {
+      const qty = r.quantity || 0;
+      const rate = r.item?.rate || 0;
+      return acc + qty * rate;
+    }, 0);
+
+    doc.fontSize(11).font('Helvetica-Bold');
+    doc.text(`Total Dispatches: ${totalCount}`, { align: 'left' });
+    doc.text(`Total Value: ₹${totalValue.toFixed(2)}`, { align: 'left' });
+
+    // ✅ End and send
     doc.end();
 
-    // Wait for PDF to finish
     writeStream.on('finish', () => {
       res.download(filePath, fileName, err => {
         if (err) console.error('❌ PDF download error:', err);
-        fs.unlink(filePath, () => {}); // optional cleanup
+        fs.unlink(filePath, () => {}); // delete temp file after download
       });
     });
 
@@ -495,7 +570,6 @@ exports.getDispatchSummaryPDF = async (req, res) => {
     res.status(500).json({ message: 'Failed to generate dispatch PDF', error: err.message });
   }
 };
-
 exports.getOrderStatusReport = async (req, res) => {
   try {
     if (req.user.role !== 'admin') {
@@ -538,7 +612,12 @@ exports.addSale = async (req, res) => {
   try {
     const { customerName, customerEmail, customerAddress, item, quantity, price } = req.body;
 
-   
+    // ✅ Validate input
+    if (!item || !quantity || quantity <= 0) {
+      return res.status(400).json({ message: 'Item and valid quantity required' });
+    }
+
+    // ✅ Check user stock
     const userStock = await Stock.findOne({
       item,
       ownerId: req.user.id,
@@ -546,10 +625,22 @@ exports.addSale = async (req, res) => {
     });
 
     if (!userStock || userStock.quantity < quantity) {
-      return res.status(400).json({ message: `Insufficient stock. Available: ${userStock?.quantity || 0}` });
+      return res.status(400).json({
+        message: `Insufficient stock. Available: ${userStock?.quantity || 0}`
+      });
     }
 
-    
+    // ✅ Handle Invoice Upload (optional)
+    let invoiceData = null;
+    if (req.file) {
+      invoiceData = {
+        filePath: `/uploads/invoices/${req.file.filename}`,
+        fileType: req.file.mimetype.includes('pdf') ? 'pdf' : 'image',
+        uploadedAt: new Date()
+      };
+    }
+
+    // ✅ Create Sale record
     const sale = new Sale({
       userId: req.user.id,
       customerName,
@@ -557,38 +648,76 @@ exports.addSale = async (req, res) => {
       customerAddress,
       item,
       quantity,
-      price
+      price,
+      totalValue: quantity * price,
+      invoice: invoiceData
     });
+
     await sale.save();
 
-
+    // ✅ Deduct quantity from stock
     userStock.quantity -= quantity;
     await userStock.save();
 
+    // ✅ Response
     res.status(201).json({
-      message: 'Sale added successfully & stock updated',
+      message: 'Sale added successfully with invoice info',
       sale,
       remainingStock: userStock.quantity
     });
 
   } catch (err) {
+    console.error('❌ Sale error:', err);
     res.status(500).json({ message: 'Failed to add sale', error: err.message });
   }
 };
 
+
 exports.getSales = async (req, res) => {
   try {
+    // Only logged-in user's sales
     const sales = await Sale.find({ userId: req.user.id })
-      .populate('item') // Optional: to show item details
-      .sort({ saleDate: -1 }); // Latest first
+      .populate('item', 'name') // show item name
+      .sort({ saleDate: -1 })   // latest first
+      .lean();
+
+    if (!sales.length) {
+      return res.status(200).json({
+        message: 'No sales records found',
+        count: 0,
+        sales: []
+      });
+    }
+
+    // Clean & formatted data
+    const formattedSales = sales.map(sale => ({
+      _id: sale._id,
+      customerName: sale.customerName,
+      customerEmail: sale.customerEmail || '-',
+      customerAddress: sale.customerAddress || '-',
+      itemName: sale.item?.name || 'Unknown',
+      quantity: sale.quantity,
+      price: sale.price,
+      totalAmount: sale.totalAmount,
+      saleDate: new Date(sale.saleDate).toLocaleDateString(),
+      invoice: sale.invoice?.filePath 
+        ? {
+            filePath: sale.invoice.filePath,
+            fileType: sale.invoice.fileType,
+            uploadedAt: sale.invoice.uploadedAt
+              ? new Date(sale.invoice.uploadedAt).toLocaleString()
+              : null
+          }
+        : null
+    }));
 
     res.status(200).json({
-      
       message: 'Sales fetched successfully',
-      count: sales.length,
-      sales
+      count: formattedSales.length,
+      sales: formattedSales
     });
   } catch (err) {
+    console.error('❌ Error fetching sales:', err);
     res.status(500).json({ message: 'Failed to fetch sales', error: err.message });
   }
 };
@@ -596,82 +725,69 @@ exports.getSales = async (req, res) => {
 
 exports.downloadSalesPdf = async (req, res) => {
   try {
-    const sales = await Sale.find({ userId: req.user.id }).populate('item');
+    const sales = await Sale.find({ userId: req.user.id })
+      .populate('item', 'name')
+      .sort({ saleDate: -1 });
+
+    if (!sales.length)
+      return res.status(404).json({ message: 'No sales found to generate report' });
 
     const doc = new PDFDocument({ margin: 40, size: 'A4' });
-
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="sales_report.pdf"');
-
     doc.pipe(res);
 
-    // Title
-    doc.font('Helvetica-Bold').fontSize(18).text('Sales Report', { align: 'center' });
-    doc.moveDown();
+    // Header
+    doc.font('Helvetica-Bold').fontSize(18).text('SALES REPORT', { align: 'center' });
+    doc.moveDown(0.5);
+    doc.fontSize(11).text(`Generated on: ${new Date().toLocaleString()}`, { align: 'right' });
+    doc.moveDown(1);
 
-    doc.font('Helvetica').fontSize(10).fillColor('#444')
-      .text(`Generated on: ${new Date().toLocaleString()}`, { align: 'right' });
-    doc.moveDown();
-
-    // Define column widths
-    const columnWidths = {
-      customer: 100,
-      item: 100,
-      qty: 40,
-      price: 60,
-      total: 70,   // wider to make room
-      gap: 20,     // spacing between total and date
-      date: 100
-    };
-
+    // Table
     const startX = 40;
     const tableTop = doc.y + 10;
+    const col = { customer: 100, item: 100, qty: 50, price: 60, total: 70, date: 100 };
+    const X = {
+      customer: startX,
+      item: startX + col.customer,
+      qty: startX + col.customer + col.item,
+      price: startX + col.customer + col.item + col.qty,
+      total: startX + col.customer + col.item + col.qty + col.price,
+      date: startX + col.customer + col.item + col.qty + col.price + col.total
+    };
 
-    // Calculate column X positions
-    const customerX = startX;
-    const itemX = customerX + columnWidths.customer;
-    const qtyX = itemX + columnWidths.item;
-    const priceX = qtyX + columnWidths.qty;
-    const totalX = priceX + columnWidths.price;
-    const dateX = totalX + columnWidths.total + columnWidths.gap;
-
-    // Table header
-    doc.font('Helvetica-Bold').fontSize(12).fillColor('#000');
-    doc.text('Customer', customerX, tableTop, { width: columnWidths.customer });
-    doc.text('Item', itemX, tableTop, { width: columnWidths.item });
-    doc.text('Qty', qtyX, tableTop, { width: columnWidths.qty, align: 'right' });
-    doc.text('Price', priceX, tableTop, { width: columnWidths.price, align: 'right' });
-    doc.text('Total', totalX, tableTop, { width: columnWidths.total, align: 'right' });
-    doc.text('Date', dateX, tableTop, { width: columnWidths.date });
+    // Header row
+    doc.font('Helvetica-Bold').fontSize(12);
+    doc.text('Customer', X.customer, tableTop);
+    doc.text('Item', X.item, tableTop);
+    doc.text('Qty', X.qty, tableTop, { align: 'right' });
+    doc.text('Price', X.price, tableTop, { align: 'right' });
+    doc.text('Total', X.total, tableTop, { align: 'right' });
+    doc.text('Date', X.date, tableTop);
     doc.moveTo(startX, tableTop + 15).lineTo(550, tableTop + 15).stroke();
 
-    // Table rows
-    doc.font('Helvetica').fontSize(11).fillColor('#000');
+    // Rows
+    doc.font('Helvetica').fontSize(11);
     let y = tableTop + 25;
     let grandTotal = 0;
 
-    sales.forEach((sale) => {
-      doc.text(sale.customerName, customerX, y, { width: columnWidths.customer });
-      doc.text(sale.item?.name || 'N/A', itemX, y, { width: columnWidths.item });
-      doc.text(sale.quantity.toString(), qtyX, y, { width: columnWidths.qty, align: 'right' });
-      doc.text(`${sale.price.toFixed(2)}`, priceX, y, { width: columnWidths.price, align: 'right' });
-      doc.text(`${sale.totalAmount.toFixed(2)}`, totalX, y, { width: columnWidths.total, align: 'right' });
-      doc.text(new Date(sale.saleDate).toLocaleDateString(), dateX, y, { width: columnWidths.date });
-
+    for (const sale of sales) {
+      doc.text(sale.customerName, X.customer, y);
+      doc.text(sale.item?.name || '-', X.item, y);
+      doc.text(String(sale.quantity), X.qty, y, { align: 'right' });
+      doc.text(sale.price.toFixed(2), X.price, y, { align: 'right' });
+      doc.text(sale.totalAmount.toFixed(2), X.total, y, { align: 'right' });
+      doc.text(new Date(sale.saleDate).toLocaleDateString(), X.date, y);
       y += 20;
       grandTotal += sale.totalAmount;
-    });
+    }
 
-    // Line before total
-    doc.moveTo(startX, y + 5).lineTo(550, y + 5).stroke();
-
-
- 
+    doc.moveTo(startX, y).lineTo(550, y).stroke();
     doc.font('Helvetica-Bold').fontSize(13);
-    doc.text(`Grand Total(RS): ${grandTotal.toFixed(2)}`, startX, y + 15, { align: 'right' });
-
+    doc.text(`Grand Total (₹): ${grandTotal.toFixed(2)}`, startX, y + 10, { align: 'right' });
     doc.end();
   } catch (err) {
+    console.error('❌ Sales PDF error:', err);
     res.status(500).json({ message: 'Failed to generate PDF', error: err.message });
   }
 };
@@ -680,74 +796,96 @@ exports.downloadSalesPdf = async (req, res) => {
 
 exports.getInvoice = async (req, res) => {
   try {
-    let { id } = req.params;
+    let { id, type } = req.params; // type = "request" or "sale"
 
-    // 🟢 If no ID provided, auto-detect latest dispatched one
-    if (!id || id === 'auto') {
-      let latest;
-      if (req.user.role === 'admin') {
-        latest = await Request.findOne({
-          status: 'dispatched',
-          'invoice.filePath': { $exists: true }
-        }).sort({ updatedAt: -1 });
-      } else {
-        latest = await Request.findOne({
-          user: req.user._id,
-          status: 'dispatched',
-          'invoice.filePath': { $exists: true }
-        }).sort({ updatedAt: -1 });
-      }
+    let record;
 
-      if (!latest) {
-        return res.status(404).json({
-          message: req.user.role === 'admin'
-            ? 'No dispatched invoice found for admin.'
-            : 'No dispatched invoice found for your requests.'
-        });
-      }
-
-      id = latest._id;
+    if (type === 'sale') {
+      record = await Sale.findById(id).populate('userId');
+      if (!record) return res.status(404).json({ message: 'Sale not found.' });
+    } else {
+      record = await Request.findById(id).populate('user');
+      if (!record) return res.status(404).json({ message: 'Request not found.' });
     }
 
-    // 🟢 Validate ID
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: 'Invalid Request ID' });
-    }
-
-    // 🟢 Find request
-    const request = await Request.findById(id).populate('user');
-    if (!request) return res.status(404).json({ message: 'Request not found.' });
-
-    // ❌ If request not yet dispatched
-    if (request.status !== 'dispatched') {
-      return res.status(400).json({
-        message: 'Invoice can only be downloaded after dispatch.'
-      });
-    }
-
-    // ❌ If invoice missing
-    if (!request.invoice?.filePath) {
+    if (!record.invoice?.filePath)
       return res.status(404).json({ message: 'Invoice not uploaded yet.' });
-    }
 
-    // 🟢 Access control — admin or owner only
     if (
       req.user.role !== 'admin' &&
-      request.user._id.toString() !== req.user._id.toString()
+      (record.userId?._id || record.user?._id)?.toString() !== req.user._id.toString()
     ) {
       return res.status(403).json({ message: 'Unauthorized access.' });
     }
 
-    // 🟢 Locate file
-    const invoicePath = path.join(__dirname, '..', request.invoice.filePath.replace(/^\/+/, ''));
-    if (!fs.existsSync(invoicePath)) {
+    const invoicePath = path.join(__dirname, '..', record.invoice.filePath.replace(/^\/+/, ''));
+    if (!fs.existsSync(invoicePath))
       return res.status(404).json({ message: 'Invoice file missing on server.' });
-    }
 
-    // 🟢 Download
     res.download(invoicePath);
   } catch (err) {
-    console.error('❌ Invoice error:', err);
+    console.error('❌ Invoice fetch error:', err);
     res.status(500).json({ message: 'Error fetching invoice', error: err.message });
+  }
+};
+
+
+exports.getAllDispatches = async (req, res) => {
+  try {
+    if (!['admin', 'superadmin'].includes(req.user.role))
+      return res.status(403).json({ message: 'Unauthorized' });
+
+    const filter = { "dispatchHistory.0": { $exists: true } };
+    if (req.user.role === 'admin') {
+      filter.company = req.user._id; // only admin’s company
+    }
+
+    const requests = await Request.find(filter)
+      .populate('company', 'name email phone')
+      .populate('user', 'name email branch location')
+      .populate('item', 'name')
+      .populate('dispatchHistory.dispatchedBy', 'name email role')
+      .populate('dispatchHistory.dispatchedTo', 'name email branch')
+      .lean();
+
+    if (!requests.length)
+      return res.status(200).json({ message: 'No dispatch records found', totalDispatches: 0, dispatches: [] });
+
+    const allDispatches = [];
+
+    requests.forEach(reqDoc => {
+      reqDoc.dispatchHistory.forEach(record => {
+        allDispatches.push({
+          requestId: reqDoc._id,
+          token: reqDoc.token || '-',
+          companyName: reqDoc.company?.name || 'Unknown Company',
+          itemName: reqDoc.itemName || reqDoc.item?.name || 'Unknown',
+          quantity: record.quantity || 0,
+          rate: record.rate || 0,
+          value: (record.quantity * record.rate).toFixed(2),
+          branch: record.branch || reqDoc.user?.branch || '-',
+          dispatchedAt: record.dispatchedAt || '-',
+          dispatchedBy: record.dispatchedBy?.name || 'Admin',
+          dispatchedTo: record.dispatchedTo?.name || reqDoc.user?.name || 'User',
+          dispatchedToEmail: record.dispatchedTo?.email || '-',
+          deliveryLocation: reqDoc.user?.location || '-',
+          priority: reqDoc.priority || 'Medium'
+        });
+      });
+    });
+
+    const sortedDispatches = allDispatches.sort(
+      (a, b) => new Date(b.dispatchedAt) - new Date(a.dispatchedAt)
+    );
+
+    res.status(200).json({
+      message: 'All dispatch records fetched successfully',
+      companyView: req.user.role === 'superadmin' ? 'All Companies' : req.user.name,
+      totalDispatches: sortedDispatches.length,
+      dispatches: sortedDispatches
+    });
+  } catch (err) {
+    console.error('❌ Dispatch fetch error:', err);
+    res.status(500).json({ message: 'Failed to fetch dispatch records', error: err.message });
   }
 };

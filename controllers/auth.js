@@ -1,4 +1,4 @@
-const User = require('../model/user'); 
+const User = require('../model/user');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 
@@ -10,12 +10,24 @@ const generateToken = (user) => {
   );
 };
 
-
+// ✅ REGISTER
 exports.register = async (req, res) => {
   try {
-    const { name, email, phone, location, password, confirmPassword,branch, role = 'user' } = req.body;
+    const {
+      name,
+      email,
+      phone,
+      address,
+      image,
+      CINnumber,
+      branch,
+      location,
+      password,
+      confirmPassword,
+      role = 'user'
+    } = req.body;
 
-    if (!name || !email || !phone || !location || !password || !confirmPassword || !branch) {
+    if (!name || !email || !phone || !address || !password || !confirmPassword || !branch || !location) {
       return res.status(400).json({ message: 'All fields are required' });
     }
 
@@ -28,26 +40,34 @@ exports.register = async (req, res) => {
       return res.status(400).json({ message: 'User already exists' });
     }
 
-
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
       name,
       email: email.trim().toLowerCase(),
       phone,
+      address,
+      image,
+      CINnumber,
+      branch,
       location,
-       branch,
       password: hashedPassword,
       role,
-      isVerified: true 
+      isVerified: true
     });
 
     return res.status(201).json({
-      message: 'Registration successful.',
+      message: 'Registration successful',
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
+        address: user.address,
+        image: user.image,
+        CINnumber: user.CINnumber,
+        branch: user.branch,
+        location: user.location,
         role: user.role
       }
     });
@@ -57,6 +77,7 @@ exports.register = async (req, res) => {
   }
 };
 
+// ✅ LOGIN
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -80,6 +101,12 @@ exports.login = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
+        phone: user.phone,
+        address: user.address,
+        image: user.image,
+        CINnumber: user.CINnumber,
+        branch: user.branch,
+        location: user.location,
         role: user.role
       }
     });
