@@ -1,0 +1,51 @@
+const jwt = require("jsonwebtoken");
+const User = require("../model/user");
+
+exports.ssoLogin = async (req, res) => {
+  try {
+    let token = req.query.token || req.body.token;
+    console.log(" Incoming token:", token);
+
+    if (!token) {
+      return res.status(401).json({ message: "Token missing" });
+    }
+
+    
+    if (token.startsWith("Bearer ")) {
+      token = token.replace("Bearer ", "");
+    }
+
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    console.log(" Decoded token:", decoded);
+
+    if (decoded.role !== "admin") {
+      return res.status(403).json({ message: "Not admin" });
+    }
+
+    let admin = await User.findOne({ email: decoded.email });
+
+    if (!admin) {
+      admin = await User.create({
+        email: decoded.email,
+        firstName: decoded.name || "FastResponse",
+        role: "admin",
+        isEmailVerified: true
+      });
+    }
+
+    const imsToken = jwt.sign(
+      { id: admin._id, role: admin.role },
+      process.env.IMS_JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    return res.json({ imsToken });
+
+  } catch (err) {
+    console.error("❌ SSO ERROR:", err.message);
+    return res.status(401).json({ message: "SSO failed", error: err.message });
+  }
+};
+
