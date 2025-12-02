@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const User = require('../model/user'); // ✅ Add this
+const User = require('../model/user');
 
 const auth = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -11,10 +11,10 @@ const auth = async (req, res, next) => {
   const token = authHeader.split(' ')[1];
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.IMS_JWT_SECRET);
 
-    // ✅ Fetch user to get branch, role, etc.
-    const user = await User.findById(decoded.id).select('-password');
+    // ✅ Use email instead of id to fetch the user
+    const user = await User.findOne({ email: decoded.email }).select('-password');
     if (!user) return res.status(401).json({ message: 'User not found' });
 
     req.user = user; // now you have full user
