@@ -13,11 +13,21 @@ const auth = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.IMS_JWT_SECRET);
 
-    // ✅ Use email instead of id to fetch the user
-    const user = await User.findOne({ email: decoded.email }).select('-password');
-    if (!user) return res.status(401).json({ message: 'User not found' });
+    let user = null;
 
-    req.user = user; // now you have full user
+    if (decoded.id) {
+      user = await User.findById(decoded.id).select('-password');
+    }
+
+    if (!user && decoded.email) {
+      user = await User.findOne({ email: decoded.email }).select('-password');
+    }
+
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    req.user = user;
     next();
 
   } catch (err) {
