@@ -20,7 +20,7 @@ const {
   downloadSalesPdf,
   getInvoice,
   uploadInvoice,
-  getMyRequests,getAllDispatches, superAdminMonitor
+  getMyRequests,getAllDispatches, superAdminMonitor,createRequestFromFR
 } = require('../controllers/requestController');
 
 
@@ -55,5 +55,9 @@ router.get('/requests/invoice', auth, getInvoice);
 
 router.get('/all-dispatch', auth,getAllDispatches);
 // (❌ Removed duplicate inline route definition)
+
+
+
+router.post('/from-fr',createRequestFromFR)
 
 module.exports = router;
