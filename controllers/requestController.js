@@ -329,7 +329,7 @@ exports.dispatchRequest = async (req, res) => {
       const frToken = jwt.sign({ system: "IMS" }, process.env.FR_JWT_SECRET);
 
       await axios.patch(
-        `${process.env.FR_BASE_URL}/api/parts/update-status-from-ims`,
+        `${process.env.FR_BASE_URL}/api/approverejectbyadmin`,
         {
           workId: reference.workId,
           partId: reference.partId,
@@ -1005,7 +1005,6 @@ exports.superAdminMonitor = async (req, res) => {
   }
 };
 
-
 exports.createRequestFromFR = async (req, res) => {
   try {
     const { itemName, quantity, requiredDate, location, workRefId, partRefId } = req.body;
@@ -1014,10 +1013,13 @@ exports.createRequestFromFR = async (req, res) => {
       return res.status(400).json({ message: 'Item name & valid quantity required' });
     }
 
-    const frSystemUser = await User.findOne({ role: "ims_superadmin" });
-    if (!frSystemUser) {
-      return res.status(404).json({ message: "IMS System SuperAdmin Not Found" });
-    }
+let frSystemUser = await User.findOne({ role: "admin" });
+if (!frSystemUser) {
+  frSystemUser = await User.findOne({ role: "superadmin" });
+}
+if (!frSystemUser) {
+  return res.status(404).json({ message: "IMS System Admin Not Found" });
+}
 
     const request = new Request({
       user: frSystemUser._id,
