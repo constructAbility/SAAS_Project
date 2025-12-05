@@ -255,68 +255,42 @@ exports.rejectRequest = async (req, res) => {
 // 🔹 DISPATCH REQUEST (Only Admin)
 exports.dispatchRequest = async (req, res) => {
   try {
-    // 🧩 Only admin can dispatch
     if (req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Only admin can dispatch requests' });
     }
 
-    // 🧩 Find request with user + company populated
     const request = await Request.findById(req.params.id)
       .populate('user', 'name email')
       .populate('company', 'name');
 
-    if (!request) {
-      return res.status(404).json({ message: 'Request not found' });
-    }
+    if (!request) return res.status(404).json({ message: 'Request not found' });
 
-    // 🧩 Check if admin belongs to same company
-    if (request.company._id.toString() !== req.user.companyId.toString()) {
-      return res.status(403).json({ message: 'Not authorized to dispatch this request' });
-    }
+   if (!['approved', 'invoice_uploaded', 'invoice_uploaded_by_user'].includes(request.status)) {
+  return res.status(400).json({
+    message: "Request must be approved or invoiced before dispatch"
+  });
+}
 
-    // ✅ Allow dispatch if invoice uploaded by admin or user
-    if (
-      request.status !== 'invoice_uploaded' &&
-      request.status !== 'invoice_uploaded_by_user'
-    ) {
-      return res.status(400).json({ message: 'Cannot dispatch. Invoice not uploaded yet.' });
-    }
 
-    const { quantity, itemName } = request;
-
-    // 🧩 Verify admin user
+    const { quantity, itemName, reference } = request;
     const adminUser = await User.findById(req.user._id);
-    if (!adminUser) {
-      return res.status(404).json({ message: 'Admin user not found' });
-    }
-
-    // 🧩 Find the item
     const normalizedItemName = itemName.trim().toLowerCase();
     const item = await Item.findOne({ name: normalizedItemName });
-    if (!item) {
-      return res.status(400).json({ message: `Item "${itemName}" not found` });
-    }
 
-    // 🧩 Check admin stock
     const adminStock = await Stock.findOne({
       item: item._id,
       ownerId: adminUser._id,
       ownerType: 'admin'
     });
-    if (!adminStock) {
-      return res.status(404).json({ message: `Admin stock not found for ${itemName}` });
-    }
-    if (adminStock.quantity < quantity) {
-      return res.status(400).json({
-        message: `Insufficient stock. Available: ${adminStock.quantity}, Required: ${quantity}`
-      });
+
+    if (!adminStock || adminStock.quantity < quantity) {
+      return res.status(400).json({ message: 'Not enough admin stock' });
     }
 
-    // ✅ Deduct from admin stock
+    
     adminStock.quantity -= quantity;
     await adminStock.save();
 
-    // ✅ Merge or create user stock
     let userStock = await Stock.findOne({
       item: item._id,
       ownerId: request.user._id,
@@ -338,7 +312,6 @@ exports.dispatchRequest = async (req, res) => {
     }
     await userStock.save();
 
-    // ✅ Create dispatch record
     const dispatchRecord = new Dispatch({
       requestId: request._id,
       item: item._id,
@@ -347,29 +320,42 @@ exports.dispatchRequest = async (req, res) => {
       branch: adminStock.branch,
       dispatchedBy: adminUser._id,
       dispatchedTo: request.user._id,
-      dispatchedAt: new Date(),
-      invoiceNo: `INV-${Date.now()}-${Math.floor(Math.random() * 1000)}`
+      dispatchedAt: new Date()
     });
     await dispatchRecord.save();
 
-    // ✅ Update request
+    
+    if (reference?.workId && reference?.partId) {
+      const frToken = jwt.sign({ system: "IMS" }, process.env.FR_JWT_SECRET);
+
+      await axios.patch(
+        `${process.env.FR_BASE_URL}/api/parts/update-status-from-ims`,
+        {
+          workId: reference.workId,
+          partId: reference.partId,
+          status: "ims_dispatched"
+        },
+        { headers: { Authorization: `Bearer ${frToken}` } }
+      );
+
+      console.log("FR Updated Successfully ");
+    }
+
     request.status = 'dispatched';
     request.timestamps = request.timestamps || {};
     request.timestamps.dispatched = new Date();
     await request.save();
 
-    // ✅ Success response
-    return res.status(200).json({
-      message: 'Request dispatched successfully',
-      adminRemainingStock: adminStock.quantity,
-      userTotalStock: userStock.quantity,
+    res.status(200).json({
+      message: "Request dispatched & synced with FR system",
       dispatchRecord,
-      request
+      request,
+      adminRemainingStock: adminStock.quantity
     });
 
   } catch (err) {
-    console.error('❌ Dispatch error:', err);
-    return res.status(500).json({ message: 'Dispatch failed', error: err.message });
+    console.error("❌ Dispatch error:", err);
+    res.status(500).json({ message: err.message });
   }
 };
 
