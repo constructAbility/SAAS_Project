@@ -1018,3 +1018,46 @@ exports.superAdminMonitor = async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch superadmin dashboard', error: err.message });
   }
 };
+
+
+exports.createRequestFromFR = async (req, res) => {
+  try {
+    const { itemName, quantity, requiredDate, location, workRefId, partRefId } = req.body;
+
+    if (!itemName || !quantity) {
+      return res.status(400).json({ message: 'Item name & valid quantity required' });
+    }
+
+    const frSystemUser = await User.findOne({ role: "ims_superadmin" });
+    if (!frSystemUser) {
+      return res.status(404).json({ message: "IMS System SuperAdmin Not Found" });
+    }
+
+    const request = new Request({
+      user: frSystemUser._id,
+      itemName,
+      quantity,
+      requiredDate,
+      deliveryAddress: location,
+      company: frSystemUser._id,
+      status: "requested",
+      source: "FR",
+      reference: {
+        workId: workRefId,
+        partId: partRefId
+      }
+    });
+
+    await request.save();
+
+    res.status(201).json({
+      success: true,
+      message: "FR → IMS Request Synced",
+      request
+    });
+
+  } catch (err) {
+    console.error("🔥 IMS Create Error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
