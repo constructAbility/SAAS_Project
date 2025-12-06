@@ -1007,26 +1007,26 @@ exports.superAdminMonitor = async (req, res) => {
 
 exports.createRequestFromFR = async (req, res) => {
   try {
-    const { itemName, quantity, requiredDate, location, workRefId, partRefId } = req.body;
+    const { itemName, quantity, requiredDate, location, workRefId, partRefId, Decofitem } = req.body;
 
     if (!itemName || !quantity) {
       return res.status(400).json({ message: 'Item name & valid quantity required' });
     }
 
-let frSystemUser = await User.findOne({ role: "admin" });
-if (!frSystemUser) {
-  frSystemUser = await User.findOne({ role: "superadmin" });
-}
-if (!frSystemUser) {
-  return res.status(404).json({ message: "IMS System Admin Not Found" });
-}
+    let frSystemUser = await User.findOne({ role: "admin" });
+    if (!frSystemUser) {
+      frSystemUser = await User.findOne({ role: "superadmin" });
+    }
+    if (!frSystemUser) {
+      return res.status(404).json({ message: "IMS System Admin Not Found" });
+    }
 
     const request = new Request({
       user: frSystemUser._id,
       itemName,
       quantity,
       requiredDate,
-      deliveryAddress: location,
+      Decofitem: Decofitem || "not provided", 
       company: frSystemUser._id,
       status: "requested",
       source: "FR",
