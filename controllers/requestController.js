@@ -270,6 +270,11 @@ exports.dispatchRequest = async (req, res) => {
   });
 }
 
+if (!request.user || !request.user._id) {
+  return res.status(400).json({
+    message: "Request has no assigned user! Cannot dispatch."
+  });
+}
 
     const { quantity, itemName, reference } = request;
     const adminUser = await User.findById(req.user._id);
