@@ -264,19 +264,22 @@ exports.dispatchRequest = async (req, res) => {
 
     if (!request) return res.status(404).json({ message: 'Request not found' });
 
-   if (!['approved', 'invoice_uploaded', 'invoice_uploaded_by_user'].includes(request.status)) {
-  return res.status(400).json({
-    message: "Request must be approved or invoiced before dispatch"
-  });
-}
-
-if (!request.user || !request.user._id) {
-  return res.status(400).json({
-    message: "Request has no assigned user! Cannot dispatch."
-  });
-}
+    if (!['approved', 'invoice_uploaded', 'invoice_uploaded_by_user'].includes(request.status)) {
+      return res.status(400).json({
+        message: "Request must be approved or invoiced before dispatch"
+      });
+    }
 
     const { quantity, itemName, reference } = request;
+
+    // 🔥 FIX ADDED — itemName null/undefined ना हो
+    if (!itemName || typeof itemName !== "string") {
+      return res.status(400).json({
+        message: "Invalid itemName received from FR → IMS",
+        received_itemName: itemName
+      });
+    }
+
     const adminUser = await User.findById(req.user._id);
     const normalizedItemName = itemName.trim().toLowerCase();
     const item = await Item.findOne({ name: normalizedItemName });
@@ -291,7 +294,6 @@ if (!request.user || !request.user._id) {
       return res.status(400).json({ message: 'Not enough admin stock' });
     }
 
-    
     adminStock.quantity -= quantity;
     await adminStock.save();
 
@@ -322,13 +324,13 @@ if (!request.user || !request.user._id) {
       quantity,
       rate: adminStock.rate,
       branch: adminStock.branch,
+
       dispatchedBy: adminUser._id,
       dispatchedTo: request.user._id,
       dispatchedAt: new Date()
     });
     await dispatchRecord.save();
 
-    
     if (reference?.workId && reference?.partId) {
       const frToken = jwt.sign({ system: "IMS" }, process.env.FR_JWT_SECRET);
 
@@ -362,6 +364,7 @@ if (!request.user || !request.user._id) {
     res.status(500).json({ message: err.message });
   }
 };
+
 
 
 
