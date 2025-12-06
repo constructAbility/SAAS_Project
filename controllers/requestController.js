@@ -1012,7 +1012,16 @@ exports.superAdminMonitor = async (req, res) => {
 
 exports.createRequestFromFR = async (req, res) => {
   try {
-    const { itemName, quantity, requiredDate, location, workRefId, partRefId, Decofitem } = req.body;
+    const { 
+      itemName, 
+      quantity, 
+      requiredDate, 
+      deliveryAddress, 
+      workRefId, 
+      partRefId, 
+      Decofitem, 
+      company 
+    } = req.body;
 
     if (!itemName || !quantity) {
       return res.status(400).json({ message: 'Item name & valid quantity required' });
@@ -1027,12 +1036,13 @@ exports.createRequestFromFR = async (req, res) => {
     }
 
     const request = new Request({
-      user: frSystemUser._id,
+      user: frSystemUser._id,  
       itemName,
       quantity,
       requiredDate,
-      Decofitem: Decofitem || "not provided", 
-      company: frSystemUser._id,
+      deliveryAddress,
+      company: company || frSystemUser._id, 
+      Decofitem: Decofitem || "not provided",
       status: "requested",
       source: "FR",
       reference: {
@@ -1054,3 +1064,4 @@ exports.createRequestFromFR = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
